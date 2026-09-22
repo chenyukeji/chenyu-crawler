@@ -54,6 +54,10 @@ amazon-new-release-collector/
 ├── outputs/
 │   └── daily/
 │
+├── web/
+│   ├── __init__.py
+│   └── templates/             # Web 管理页面模板
+│
 ├── tests/
 │   ├── test_crawler.py
 │   └── test_analysis.py
@@ -179,6 +183,64 @@ rank_velocity = 17.5
 ### TREND / 产品簇
 
 当前第一版使用 `product_type` 做确定性聚类，用于发现多个不同 ASIN 是否集中属于同一种产品概念。后续可再升级语义聚类。
+
+## Web 管理后台
+
+当前已增加 FastAPI 管理入口：
+
+```text
+api/
+├── main.py
+└── categories.py
+```
+
+页面：
+
+```text
+/          首页
+/categories 类目配置页面
+```
+
+当前能力：
+
+- 服务状态查询。
+- Amazon 类目配置查询。
+- Amazon 类目配置新增。
+- Amazon 类目配置停用。
+
+页面通过 FastAPI + Jinja2 提供：
+
+- `/`
+- `/categories`
+
+类目配置存储在 SQLite `categories` 表，字段包括：
+
+- marketplace
+- node_id
+- name
+- parent_id
+- level
+- enabled
+
+API：
+
+```text
+GET  /api/categories
+POST /api/categories
+DELETE /api/categories/{id}
+```
+
+启动：
+
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+浏览器打开：
+
+```text
+http://服务器IP:8000/categories
+```
 
 ## MCP
 

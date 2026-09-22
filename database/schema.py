@@ -41,10 +41,52 @@ CREATE TABLE IF NOT EXISTS product_seen (
 """
 
 
+CATEGORIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    marketplace TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    parent_id TEXT NOT NULL DEFAULT '',
+    level INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(marketplace, node_id)
+);
+"""
+
+
+CRAWL_TASKS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS crawl_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    marketplace TEXT NOT NULL,
+    category_id INTEGER,
+    schedule TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run TEXT NOT NULL DEFAULT ''
+);
+"""
+
+
+CRAWL_RUNS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS crawl_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running',
+    message TEXT NOT NULL DEFAULT ''
+);
+"""
+
+
 def initialize_schema(connection: sqlite3.Connection) -> None:
     """Create the current database schema."""
     connection.execute(OBSERVATIONS_TABLE_SQL)
     connection.execute(PRODUCT_SEEN_TABLE_SQL)
+    connection.execute(CATEGORIES_TABLE_SQL)
+    connection.execute(CRAWL_TASKS_TABLE_SQL)
+    connection.execute(CRAWL_RUNS_TABLE_SQL)
     connection.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_observations_lookup
@@ -59,5 +101,10 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             ON product_seen(marketplace, first_seen);
         CREATE INDEX IF NOT EXISTS idx_product_seen_last
             ON product_seen(marketplace, last_seen);
+        CREATE INDEX IF NOT EXISTS idx_categories_lookup
+            ON categories(marketplace, level, enabled);
+        CREATE INDEX IF NOT EXISTS idx_crawl_tasks_lookup
+            ON crawl_tasks(enabled, schedule);
         """
     )
+    connection.commit()
