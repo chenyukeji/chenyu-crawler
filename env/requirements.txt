@@ -1,2 +1,4 @@
 playwright>=1.49
 mcp[cli]>=2,<3
+fastapi>=0.110
+uvicorn>=0.29
