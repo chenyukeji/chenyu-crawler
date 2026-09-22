@@ -42,25 +42,8 @@ CREATE TABLE IF NOT EXISTS product_seen (
 
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
-    """Create or migrate the local database without discarding existing history."""
+    """Create the current database schema."""
     connection.execute(OBSERVATIONS_TABLE_SQL)
-
-    existing_columns = {
-        str(row[1]) for row in connection.execute("PRAGMA table_info(observations)").fetchall()
-    }
-    migrations = {
-        "category": "TEXT NOT NULL DEFAULT ''",
-        "price_text": "TEXT NOT NULL DEFAULT ''",
-        "rating": "REAL NOT NULL DEFAULT 0",
-        "product_url": "TEXT NOT NULL DEFAULT ''",
-        "image_url": "TEXT NOT NULL DEFAULT ''",
-        "selling_points_json": "TEXT NOT NULL DEFAULT '[]'",
-        "selling_points_source": "TEXT NOT NULL DEFAULT 'title'",
-    }
-    for column, definition in migrations.items():
-        if column not in existing_columns:
-            connection.execute(f"ALTER TABLE observations ADD COLUMN {column} {definition}")
-
     connection.execute(PRODUCT_SEEN_TABLE_SQL)
     connection.executescript(
         """
@@ -78,25 +61,3 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             ON product_seen(marketplace, last_seen);
         """
     )
-
-    seen_count = connection.execute("SELECT COUNT(*) FROM product_seen").fetchone()[0]
-    if seen_count == 0:
-        connection.execute(
-            """
-            INSERT INTO product_seen (
-                marketplace, asin, first_seen, last_seen,
-                title, product_type, product_url, image_url
-            )
-            SELECT
-                marketplace,
-                asin,
-                MIN(snapshot_date),
-                MAX(snapshot_date),
-                MAX(title),
-                MAX(product_type),
-                MAX(product_url),
-                MAX(image_url)
-            FROM observations
-            GROUP BY marketplace, asin
-            """
-        )

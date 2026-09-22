@@ -36,24 +36,6 @@ class TrendStore:
             with connection:
                 initialize_schema(connection)
 
-    def backfill_categories(self, sources: Iterable[dict[str, Any]]) -> int:
-        """Populate the new category column for historical rows using configured source URLs."""
-        changed = 0
-        with closing(self.connect()) as connection:
-            with connection:
-                before = connection.total_changes
-                for source in sources:
-                    connection.execute(
-                        """
-                        UPDATE observations
-                        SET category = ?
-                        WHERE source_url = ? AND COALESCE(category, '') = ''
-                        """,
-                        (str(source.get("category") or ""), str(source.get("url") or "")),
-                    )
-                changed = connection.total_changes - before
-        return changed
-
     def ingest(
         self,
         items: Iterable[dict[str, Any]],

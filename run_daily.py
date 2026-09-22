@@ -111,7 +111,6 @@ def main(argv: list[str] | None = None) -> int:
         retention_days=int(policy.get("retention_days", 10)),
         identity_retention_days=int(policy.get("identity_retention_days", 90)),
     )
-    store.backfill_categories(sources)
 
     results: list[dict[str, Any]] = []
     observations_total = 0

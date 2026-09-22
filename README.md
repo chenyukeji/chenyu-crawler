@@ -22,12 +22,12 @@ amazon-new-release-collector/
 │   └── categories.py          # 数据源读取、验证、筛选
 │
 ├── data/
-│   └── new_releases.db        # 本地 SQLite；由原 trends.db 保留数据后重命名
+│   └── new_releases.db        # 本地 SQLite
 │
 ├── database/
 │   ├── __init__.py
-│   ├── schema.py              # observations / product_seen 表和迁移
-│   └── repository.py          # 写入、清理、历史 category 回填、只读连接
+│   ├── schema.py              # observations / product_seen 当前表结构
+│   └── repository.py          # 写入、清理、只读连接
 │
 ├── analysis/
 │   ├── __init__.py
@@ -55,10 +55,9 @@ amazon-new-release-collector/
 │   └── daily/
 │
 ├── tests/
-│   ├── test_collector.py
+│   ├── test_crawler.py
 │   └── test_analysis.py
 │
-├── collector.py               # 旧入口兼容层
 ├── run_daily.py               # 推荐的每日采集入口
 ├── TASK_BOARD.md
 └── README.md
@@ -87,7 +86,7 @@ observations
 product_seen
 ```
 
-默认保留 **90 天**，只用于识别产品以前是否出现过，避免 10 天详细快照清理后把旧 ASIN 误判为“全新出现”。
+默认保留 **90 天**，只用于识别产品以前是否出现过，避免 10 天详细快照清理后把历史 ASIN 误判为“全新出现”。
 
 因此：
 
@@ -231,12 +230,6 @@ mcp[cli]>=2,<3
 
 ```powershell
 .\env\.venv\Scripts\python.exe .\run_daily.py --validate-only
-```
-
-旧命令仍兼容：
-
-```powershell
-.\env\.venv\Scripts\python.exe .\collector.py --validate-only
 ```
 
 ## 每日采集
