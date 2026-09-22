@@ -1,0 +1,2 @@
+playwright>=1.49
+mcp[cli]>=2,<3

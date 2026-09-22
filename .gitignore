@@ -1,0 +1,10 @@
+env/.venv/
+.env
+.env.*
+*.db
+*.db-journal
+*.lock
+outputs/
+__pycache__/
+*.py[cod]
+.pytest_cache/

@@ -1,0 +1,6 @@
+{
+  "python": ">=3.10",
+  "virtual_environment": "env/.venv",
+  "database": "SQLite (Python standard library)",
+  "browser_runtime": "Python Playwright with installed Microsoft Edge (headed by default)"
+}
