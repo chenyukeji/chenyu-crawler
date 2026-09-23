@@ -22,8 +22,10 @@ Amazon 新品榜采集
 - [x] 在配置页新增美国站或德国站榜单类目。
 - [x] 可视化快照量、唯一 ASIN、最近状态和近 7 天采集量。
 - [x] 每天最多自动执行一次。
-- [x] 只保存 `observations` 和当前 `scheduler_state`。
+- [x] 只保存采集事实：`observations`、`product_seen` 和 `collection_runs`。
 - [x] 快照最多保留 7 天。
+- [x] `product_seen` 长期保留，支持准确判断 ASIN 首次出现。
+- [x] 每个数据源记录 `RUNNING`、`COMPLETE` 或 `FAILED` 采集结果。
 - [x] 删除旧数据库、旧页面、旧 API、旧任务模型和兼容迁移。
 - [x] 保留访问控制检测，遇到登录或验证码立即停止。
 

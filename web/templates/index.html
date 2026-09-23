@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {% if state.last_status == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}
+  {% if state.last_status == 'running' or run_started %}<meta http-equiv="refresh" content="5">{% endif %}
   <title>Amazon 新品榜采集器</title>
   <style>
     :root {
@@ -131,8 +131,8 @@
             <div class="muted">固定时区<br><strong>{{ schedule_timezone }}</strong></div>
           </div>
           <div class="run-row">
-            <button class="secondary" type="submit" formaction="/run" formmethod="post" formnovalidate {% if state.last_status == 'running' %}disabled{% endif %}>
-              {% if state.last_status == 'running' %}采集中…{% else %}立即运行{% endif %}
+            <button class="secondary" type="submit" formaction="/run" formmethod="post" formnovalidate {% if state.last_status == 'running' or run_started %}disabled{% endif %}>
+              {% if state.last_status == 'running' or run_started %}采集中…{% else %}立即运行{% endif %}
             </button>
             <span class="muted">按已保存、已启用的数据源执行</span>
           </div>

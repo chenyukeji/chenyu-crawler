@@ -70,17 +70,46 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(store.retention_days, 7)
             source = "https://www.amazon.de/gp/new-releases/example"
             first_run = [
-                {"rank": 1, "asin": "B000000001", "title": "First Run Product"},
-                {"rank": 2, "asin": "B000000002", "title": "Dropped Product"},
+                {
+                    "rank": 1,
+                    "asin": "b000000001",
+                    "title": "First Run Product",
+                    "image_url": "https://images.example/1.jpg",
+                },
+                {
+                    "rank": 2,
+                    "asin": "B000000002",
+                    "title": "Dropped Product",
+                    "image_url": "https://images.example/2.jpg",
+                },
             ]
             second_run = [
-                {"rank": 1, "asin": "B000000001", "title": "Updated Product"},
-                {"rank": 2, "asin": "B000000003", "title": "New Product"},
+                {
+                    "rank": 1,
+                    "asin": "B000000001",
+                    "title": "Updated Product",
+                    "image_url": "https://images.example/1.jpg",
+                },
+                {
+                    "rank": 2,
+                    "asin": "B000000003",
+                    "title": "New Product",
+                    "image_url": "https://images.example/3.jpg",
+                },
             ]
-            store.ingest(first_run, source_url=source, marketplace="DE", snapshot_date="2026-09-01")
-            store.ingest(second_run, source_url=source, marketplace="DE", snapshot_date="2026-09-01")
-            store.ingest(second_run, source_url=source, marketplace="DE", snapshot_date="2026-09-01")
-            store.ingest(first_run, source_url=source, marketplace="DE", snapshot_date="2026-07-01")
+            for items, snapshot_date in (
+                (first_run, "2026-09-01"),
+                (second_run, "2026-09-01"),
+                (second_run, "2026-09-01"),
+                (first_run, "2026-07-01"),
+            ):
+                store.ingest(
+                    items,
+                    source_url=source,
+                    marketplace="DE",
+                    category="example",
+                    snapshot_date=snapshot_date,
+                )
             store.prune(date.fromisoformat("2026-09-01"))
             with closing(store.connect()) as connection:
                 dates = [
@@ -97,12 +126,41 @@ class CollectorTests(unittest.TestCase):
                 columns = {
                     row[1] for row in connection.execute("PRAGMA table_info(observations)").fetchall()
                 }
+                seen = connection.execute(
+                    "SELECT asin, first_seen, last_seen FROM product_seen ORDER BY asin"
+                ).fetchall()
             self.assertEqual(dates, ["2026-09-01"])
             self.assertEqual(count, 2)
             self.assertEqual([row[0] for row in rows], ["B000000001", "B000000003"])
             self.assertEqual(rows[0][1], "Updated Product")
+            self.assertEqual(
+                [tuple(row) for row in seen],
+                [
+                    ("B000000001", "2026-07-01", "2026-09-01"),
+                    ("B000000002", "2026-07-01", "2026-09-01"),
+                    ("B000000003", "2026-09-01", "2026-09-01"),
+                ],
+            )
             self.assertNotIn("product_type", columns)
             self.assertNotIn("selling_points_json", columns)
+
+    def test_collection_run_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SnapshotStore(Path(directory) / "new_releases.db")
+            run_id = store.start_run(
+                source_url="https://www.amazon.com/gp/new-releases/example",
+                marketplace="US",
+                category="example",
+                snapshot_date="2026-09-23",
+                started_at="2026-09-23T08:15:00+08:00",
+            )
+            store.finish_run(run_id, status="COMPLETE", item_count=100)
+            with closing(store.connect()) as connection:
+                row = connection.execute(
+                    "SELECT status, item_count, error_message FROM collection_runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+            self.assertEqual(tuple(row), ("COMPLETE", 100, None))
 
 
 if __name__ == "__main__":

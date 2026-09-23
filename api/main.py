@@ -44,19 +44,47 @@ templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 
 def scheduler_state() -> dict[str, str]:
     with closing(connect_database()) as connection:
-        row = connection.execute(
+        latest = connection.execute(
             """
-            SELECT last_attempt_date, last_status, last_message, updated_at
-            FROM scheduler_state WHERE id = 1
+            SELECT started_at
+            FROM collection_runs
+            ORDER BY started_at DESC
+            LIMIT 1
             """
         ).fetchone()
-    if not row:
+        if not latest:
+            return {}
+        rows = connection.execute(
+            """
+            SELECT snapshot_date, status, item_count, error_message,
+                   COALESCE(finished_at, started_at) AS updated_at
+            FROM collection_runs
+            WHERE started_at = ?
+            ORDER BY marketplace, category
+            """,
+            (str(latest[0]),),
+        ).fetchall()
+    if not rows:
         return {}
+    statuses = {str(row[1]) for row in rows}
+    if "RUNNING" in statuses:
+        status = "running"
+    elif "FAILED" in statuses:
+        status = "failed"
+    else:
+        status = "success"
+    errors = [str(row[3]) for row in rows if row[3]]
+    completed = sum(1 for row in rows if str(row[1]) == "COMPLETE")
+    message = (
+        "\n".join(errors)
+        if errors
+        else f"完成 {completed}/{len(rows)} 个数据源，共采集 {sum(int(row[2]) for row in rows)} 条。"
+    )
     return {
-        "last_attempt_date": str(row[0]),
-        "last_status": str(row[1]),
-        "last_message": str(row[2]),
-        "updated_at": str(row[3]),
+        "last_attempt_date": str(rows[0][0]),
+        "last_status": status,
+        "last_message": message,
+        "updated_at": max(str(row[4]) for row in rows),
     }
 
 

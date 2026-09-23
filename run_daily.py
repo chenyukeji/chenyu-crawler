@@ -109,11 +109,22 @@ def main(argv: list[str] | None = None) -> int:
     observations_total = 0
     stopped = False
     started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    run_ids: dict[str, str] = {}
+    finished_run_ids: set[str] = set()
 
     try:
         lock_handle.write(started_at)
         lock_handle.close()
         store.prune(date.fromisoformat(args.date))
+        for source in sources:
+            current_source_id = source_id(source)
+            run_ids[current_source_id] = store.start_run(
+                source_url=source["url"],
+                marketplace=source["marketplace"],
+                category=source["category"],
+                snapshot_date=args.date,
+                started_at=started_at,
+            )
 
         with sync_playwright() as playwright:
             launch_options: dict[str, Any] = {
@@ -144,6 +155,19 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     observations_total += len(snapshot["items"])
                     source_status = str(snapshot["status"])
+                    run_status = "COMPLETE" if source_status == "ok" else "FAILED"
+                    run_error = None
+                    if run_status == "FAILED":
+                        run_error = (
+                            f"只采集到 {len(snapshot['items'])}/{limit} 条，榜单结果不完整"
+                        )
+                    store.finish_run(
+                        run_ids[current_source_id],
+                        status=run_status,
+                        item_count=len(snapshot["items"]),
+                        error_message=run_error,
+                    )
+                    finished_run_ids.add(run_ids[current_source_id])
                     results.append(
                         {
                             "source": current_source_id,
@@ -156,6 +180,13 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     )
                 except AccessControlBlocked as exc:
+                    store.finish_run(
+                        run_ids[current_source_id],
+                        status="FAILED",
+                        item_count=0,
+                        error_message=str(exc),
+                    )
+                    finished_run_ids.add(run_ids[current_source_id])
                     results.append(
                         {
                             "source": current_source_id,
@@ -166,6 +197,13 @@ def main(argv: list[str] | None = None) -> int:
                     stopped = True
                     break
                 except (PlaywrightError, RuntimeError, OSError) as exc:
+                    store.finish_run(
+                        run_ids[current_source_id],
+                        status="FAILED",
+                        item_count=0,
+                        error_message=str(exc),
+                    )
+                    finished_run_ids.add(run_ids[current_source_id])
                     results.append(
                         {
                             "source": current_source_id,
@@ -179,6 +217,17 @@ def main(argv: list[str] | None = None) -> int:
 
             context.close()
             browser.close()
+    except Exception as exc:
+        for run_id in run_ids.values():
+            if run_id not in finished_run_ids:
+                store.finish_run(
+                    run_id,
+                    status="FAILED",
+                    item_count=0,
+                    error_message=str(exc),
+                )
+                finished_run_ids.add(run_id)
+        raise
     finally:
         lock_path.unlink(missing_ok=True)
 
@@ -187,6 +236,15 @@ def main(argv: list[str] | None = None) -> int:
         for source in sources:
             current_source_id = source_id(source)
             if current_source_id not in processed_ids:
+                run_id = run_ids[current_source_id]
+                if run_id not in finished_run_ids:
+                    store.finish_run(
+                        run_id,
+                        status="FAILED",
+                        item_count=0,
+                        error_message="Run stopped after access control",
+                    )
+                    finished_run_ids.add(run_id)
                 results.append(
                     {
                         "source": current_source_id,

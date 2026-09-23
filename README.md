@@ -8,8 +8,8 @@
 config/sources.json            # 每日时间、时区和数据源
 crawler/amazon.py              # 页面采集、解析、去重和风控检测
 crawler/config.py              # 配置读取、验证和保存
-database/schema.py             # observations 与 scheduler_state
-database/repository.py         # 快照写入和 7 天清理
+database/schema.py             # 三张采集事实表
+database/repository.py         # 快照、首次出现、任务记录与 7 天清理
 api/main.py                    # 唯一配置页面
 web/templates/index.html       # 配置页面模板
 run_daily.py                   # 单次采集入口
@@ -40,7 +40,11 @@ created_at
 
 同一数据源、日期和 ASIN 只保存一条记录。同日重跑会替换当天快照。快照最多保留最近 7 个日历日。
 
-`scheduler_state` 只保存最近一次每日任务的日期、状态和日志摘要，确保每天最多自动执行一次。
+`product_seen` 按站点和 ASIN 保存历史最早、最近出现日期，不随 7 天快照清理，供插件准确判断“首次出现”。
+
+`collection_runs` 按数据源保存每次任务的开始、结束、状态、采集数量和错误信息，用于区分空榜与采集失败。状态只使用 `RUNNING`、`COMPLETE`、`FAILED`。
+
+数据库不保存标题相似度、图片向量、商品分组、趋势结果或任何模型输出；这些分析由插件只读查询后临时计算。
 
 ## 安装
 

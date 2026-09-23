@@ -2,6 +2,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -100,7 +101,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/?run_started=true")
 
-    def test_schema_contains_only_snapshot_and_scheduler_tables(self) -> None:
+    def test_schema_contains_only_collection_fact_tables(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "collector.db"
             connection = sqlite3.connect(path)
@@ -114,7 +115,7 @@ class ConfigurationTests(unittest.TestCase):
                 }
             finally:
                 connection.close()
-            self.assertEqual(tables, {"observations", "scheduler_state"})
+            self.assertEqual(tables, {"observations", "product_seen", "collection_runs"})
 
     def test_scheduler_claims_only_one_run_per_day(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -131,6 +132,17 @@ class ConfigurationTests(unittest.TestCase):
             with patch("scheduler_loop.connect_database", side_effect=connect):
                 self.assertFalse(claim_daily_run(before_schedule, "06:00"))
                 self.assertTrue(claim_daily_run(after_schedule, "06:00"))
+                with closing(connect()) as connection:
+                    with connection:
+                        connection.execute(
+                            """
+                            INSERT INTO collection_runs (
+                                run_id, source_url, marketplace, category, snapshot_date,
+                                started_at, status, item_count
+                            ) VALUES ('run-1', 'https://example.com', 'US', 'example',
+                                      '2026-09-23', '2026-09-23T06:00:00+08:00', 'RUNNING', 0)
+                            """
+                        )
                 self.assertFalse(claim_daily_run(after_schedule, "06:00"))
 
 
