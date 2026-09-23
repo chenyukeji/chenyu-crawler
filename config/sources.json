@@ -1,32 +1,27 @@
 {
-  "schema_version": "1.0",
-  "schedule_timezone": "Asia/Shanghai",
+  "daily_schedule": "06:00",
   "collection_policy": {
-    "browser_ui_only": true,
-    "bypass_access_controls": false,
-    "stop_on_login_captcha_or_anti_bot": true,
     "max_items_per_source": 100,
-    "retention_days": 10,
-    "identity_retention_days": 90
+    "retention_days": 7
   },
   "sources": [
-    {"marketplace": "US", "category": "baby-products", "url": "https://www.amazon.com/gp/new-releases/baby-products/ref=zg_bsnr_nav_baby-products_0"},
-    {"marketplace": "US", "category": "fashion", "url": "https://www.amazon.com/gp/new-releases/fashion/ref=zg_bsnr_nav_fashion_0"},
-    {"marketplace": "US", "category": "beauty", "url": "https://www.amazon.com/gp/new-releases/beauty/ref=zg_bsnr_nav_beauty_0"},
-    {"marketplace": "US", "category": "home-garden", "url": "https://www.amazon.com/gp/new-releases/home-garden/ref=zg_bsnr_nav_home-garden_0"},
-    {"marketplace": "US", "category": "handmade", "url": "https://www.amazon.com/gp/new-releases/handmade/ref=zg_bsnr_nav_handmade_0"},
-    {"marketplace": "US", "category": "kitchen", "url": "https://www.amazon.com/gp/new-releases/kitchen/ref=zg_bsnr_nav_kitchen_0"},
-    {"marketplace": "US", "category": "lawn-garden", "url": "https://www.amazon.com/gp/new-releases/lawn-garden/ref=zg_bsnr_nav_lawn-garden_0"},
-    {"marketplace": "US", "category": "pet-supplies", "url": "https://www.amazon.com/gp/new-releases/pet-supplies/ref=zg_bsnr_nav_pet-supplies_0"},
-    {"marketplace": "US", "category": "sporting-goods", "url": "https://www.amazon.com/gp/new-releases/sporting-goods/ref=zg_bsnr_nav_sporting-goods_0"},
-    {"marketplace": "DE", "category": "baby-products", "url": "https://www.amazon.de/gp/new-releases/baby/ref=zg_bsnr_nav_baby_0"},
-    {"marketplace": "DE", "category": "fashion", "url": "https://www.amazon.de/gp/new-releases/fashion/ref=zg_bsnr_nav_fashion_0"},
-    {"marketplace": "DE", "category": "beauty", "url": "https://www.amazon.de/gp/new-releases/beauty/ref=zg_bsnr_nav_beauty_0"},
-    {"marketplace": "DE", "category": "home-garden", "url": "https://www.amazon.de/gp/new-releases/kitchen/ref=zg_bsnr_nav_kitchen_0"},
-    {"marketplace": "DE", "category": "handmade", "url": "https://www.amazon.de/gp/new-releases/handmade/ref=zg_bsnr_nav_handmade_0"},
-    {"marketplace": "DE", "category": "kitchen", "url": "https://www.amazon.de/gp/new-releases/kitchen/20679858031/ref=zg_bsnr_nav_kitchen_1"},
-    {"marketplace": "DE", "category": "lawn-garden", "url": "https://www.amazon.de/gp/new-releases/garden/ref=zg_bsnr_nav_garden_0"},
-    {"marketplace": "DE", "category": "pet-supplies", "url": "https://www.amazon.de/gp/new-releases/pet-supplies/ref=zg_bsnr_nav_pet-supplies_0"},
-    {"marketplace": "DE", "category": "sporting-goods", "url": "https://www.amazon.de/gp/new-releases/sports/ref=zg_bsnr_nav_sports_0"}
+    {"marketplace": "US", "category": "baby-products", "url": "https://www.amazon.com/gp/new-releases/baby-products/ref=zg_bsnr_nav_baby-products_0", "enabled": true},
+    {"marketplace": "US", "category": "fashion", "url": "https://www.amazon.com/gp/new-releases/fashion/ref=zg_bsnr_nav_fashion_0", "enabled": true},
+    {"marketplace": "US", "category": "beauty", "url": "https://www.amazon.com/gp/new-releases/beauty/ref=zg_bsnr_nav_beauty_0", "enabled": true},
+    {"marketplace": "US", "category": "home-garden", "url": "https://www.amazon.com/gp/new-releases/home-garden/ref=zg_bsnr_nav_home-garden_0", "enabled": true},
+    {"marketplace": "US", "category": "handmade", "url": "https://www.amazon.com/gp/new-releases/handmade/ref=zg_bsnr_nav_handmade_0", "enabled": true},
+    {"marketplace": "US", "category": "kitchen", "url": "https://www.amazon.com/gp/new-releases/kitchen/ref=zg_bsnr_nav_kitchen_0", "enabled": true},
+    {"marketplace": "US", "category": "lawn-garden", "url": "https://www.amazon.com/gp/new-releases/lawn-garden/ref=zg_bsnr_nav_lawn-garden_0", "enabled": true},
+    {"marketplace": "US", "category": "pet-supplies", "url": "https://www.amazon.com/gp/new-releases/pet-supplies/ref=zg_bsnr_nav_pet-supplies_0", "enabled": true},
+    {"marketplace": "US", "category": "sporting-goods", "url": "https://www.amazon.com/gp/new-releases/sporting-goods/ref=zg_bsnr_nav_sporting-goods_0", "enabled": true},
+    {"marketplace": "DE", "category": "baby-products", "url": "https://www.amazon.de/gp/new-releases/baby/ref=zg_bsnr_nav_baby_0", "enabled": true},
+    {"marketplace": "DE", "category": "fashion", "url": "https://www.amazon.de/gp/new-releases/fashion/ref=zg_bsnr_nav_fashion_0", "enabled": true},
+    {"marketplace": "DE", "category": "beauty", "url": "https://www.amazon.de/gp/new-releases/beauty/ref=zg_bsnr_nav_beauty_0", "enabled": true},
+    {"marketplace": "DE", "category": "home-garden", "url": "https://www.amazon.de/gp/new-releases/kitchen/ref=zg_bsnr_nav_kitchen_0", "enabled": true},
+    {"marketplace": "DE", "category": "handmade", "url": "https://www.amazon.de/gp/new-releases/handmade/ref=zg_bsnr_nav_handmade_0", "enabled": true},
+    {"marketplace": "DE", "category": "kitchen", "url": "https://www.amazon.de/gp/new-releases/kitchen/20679858031/ref=zg_bsnr_nav_kitchen_1", "enabled": true},
+    {"marketplace": "DE", "category": "lawn-garden", "url": "https://www.amazon.de/gp/new-releases/garden/ref=zg_bsnr_nav_garden_0", "enabled": true},
+    {"marketplace": "DE", "category": "pet-supplies", "url": "https://www.amazon.de/gp/new-releases/pet-supplies/ref=zg_bsnr_nav_pet-supplies_0", "enabled": true},
+    {"marketplace": "DE", "category": "sporting-goods", "url": "https://www.amazon.de/gp/new-releases/sports/ref=zg_bsnr_nav_sports_0", "enabled": true}
   ]
 }

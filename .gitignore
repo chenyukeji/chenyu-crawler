@@ -3,11 +3,7 @@ env/.venv/
 .env.*
 *.db
 *.db-journal
-data/test_api.db
 *.lock
-outputs/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-api/__pycache__/
-web/__pycache__/

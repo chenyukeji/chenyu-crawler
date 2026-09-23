@@ -16,21 +16,6 @@ BLOCKED_MARKERS = (
     "automatisierte zugriffe",
     "unusual traffic",
 )
-ALLOWED_AMAZON_HOSTS = {"www.amazon.com", "amazon.com", "www.amazon.de", "amazon.de"}
-STOPWORDS = {
-    "a", "an", "and", "for", "from", "in", "of", "on", "the", "to", "with",
-    "new", "pack", "set", "piece", "pieces", "pcs", "size", "small", "medium", "large",
-    "black", "white", "red", "blue", "green", "pink", "best", "premium", "upgraded",
-}
-HEAD_NOUNS = {
-    "gloves", "lights", "light", "bags", "bag", "holder", "holders", "cover", "covers",
-    "organizer", "organizers", "toy", "toys", "bottle", "bottles", "brush", "brushes",
-    "mat", "mats", "rack", "racks", "case", "cases", "decorations", "decoration", "costume",
-    "costumes", "mask", "masks", "socks", "blanket", "blankets", "pillow", "pillows",
-    "candle", "candles", "charger", "chargers", "adapter", "adapters", "container", "containers",
-}
-
-
 class AccessControlBlocked(RuntimeError):
     """Amazon showed login, CAPTCHA, rate limiting, or another access-control page."""
 
@@ -67,13 +52,6 @@ def read_json(path: Path) -> Any:
         return json.load(handle)
 
 
-def write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(value, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-
-
 def parse_number(value: Any, default: float = 0.0) -> float:
     if value is None or value == "":
         return default
@@ -103,39 +81,6 @@ def parse_first_number(value: Any, default: float = 0.0) -> float:
     return parse_number(match.group(0), default) if match else default
 
 
-def infer_title_selling_points(title: str, limit: int = 5) -> list[str]:
-    """Return benefit-like title segments without pretending they are detail-page bullets."""
-    segments = re.split("\\s*[|\\u2022]\\s*", title)
-    if len(segments) <= 1:
-        return []
-    points: list[str] = []
-    seen: set[str] = set()
-    for segment in segments[1:]:
-        cleaned = re.sub(r"\s+", " ", segment).strip(" ,-;:")
-        key = cleaned.casefold()
-        if len(cleaned) < 4 or key in seen:
-            continue
-        seen.add(key)
-        points.append(cleaned)
-        if len(points) >= limit:
-            break
-    return points
-
-
-def infer_product_type(title: str) -> str:
-    normalized = re.sub(r"[^\w\u4e00-\u9fff]+", " ", title.casefold(), flags=re.UNICODE)
-    tokens = [token for token in normalized.split() if token not in STOPWORDS and not token.isdigit() and len(token) > 1]
-    if not tokens:
-        return "Unknown Product"
-    head_index = next((index for index in range(len(tokens) - 1, -1, -1) if tokens[index] in HEAD_NOUNS), None)
-    if head_index is None:
-        return " ".join(tokens[: min(3, len(tokens))]).title()
-    descriptors = [token for token in tokens[:head_index] if token not in HEAD_NOUNS]
-    descriptor = descriptors[-1] if descriptors else ""
-    return " ".join(part for part in (descriptor, tokens[head_index]) if part).title()
-
-
-
 def detect_access_blocker(body_text: str, current_url: str = "", page_title: str = "") -> str | None:
     combined = f"{body_text}\n{page_title}".casefold()
     for marker in BLOCKED_MARKERS:
@@ -153,7 +98,14 @@ def validate_source(source: dict[str, Any]) -> None:
     if missing:
         raise ValueError(f"Source is missing required fields: {', '.join(missing)}")
     parsed = urlparse(str(source["url"]))
-    if parsed.scheme != "https" or parsed.netloc.casefold() not in ALLOWED_AMAZON_HOSTS:
+    marketplace = str(source["marketplace"]).strip().upper()
+    expected_hosts = {
+        "US": {"www.amazon.com", "amazon.com"},
+        "DE": {"www.amazon.de", "amazon.de"},
+    }
+    if marketplace not in expected_hosts:
+        raise ValueError(f"Unsupported marketplace: {marketplace}")
+    if parsed.scheme != "https" or parsed.netloc.casefold() not in expected_hosts[marketplace]:
         raise ValueError(f"Only configured Amazon US/DE HTTPS pages are allowed: {source['url']}")
     if "/gp/new-releases/" not in parsed.path:
         raise ValueError(f"Not an Amazon New Releases page: {source['url']}")
@@ -179,11 +131,8 @@ def deduplicate_items(items: list[dict[str, Any]], limit: int) -> list[dict[str,
                 "price": parse_number(item.get("price"), 0),
                 "price_text": str(item.get("price_text") or "").strip(),
                 "rating": parse_number(item.get("rating"), 0),
-                "product_type": str(item.get("product_type", "")).strip() or infer_product_type(title),
                 "product_url": str(item.get("product_url") or "").strip(),
                 "image_url": str(item.get("image_url") or "").strip(),
-                "selling_points": list(item.get("selling_points") or infer_title_selling_points(title)),
-                "selling_points_source": str(item.get("selling_points_source") or "title").strip(),
             }
         )
         if len(unique) >= limit:
@@ -237,11 +186,8 @@ def _extract_card(card: Any, fallback_rank: int, page_url: str = "") -> dict[str
         "price": parse_number(price_text, 0),
         "price_text": price_text,
         "rating": parse_first_number(rating_text, 0),
-        "product_type": infer_product_type(title),
         "product_url": product_url,
         "image_url": image_url,
-        "selling_points": infer_title_selling_points(title),
-        "selling_points_source": "title",
     }
 
 

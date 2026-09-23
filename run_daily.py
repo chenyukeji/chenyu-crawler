@@ -9,26 +9,26 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from crawler.amazon import AccessControlBlocked, BrowserSettings, collect_source, write_json
-from crawler.categories import load_sources, source_id
-from database.repository import TrendStore
+from crawler.amazon import AccessControlBlocked, BrowserSettings, collect_source
+from crawler.config import load_sources, source_id
+from database.repository import SnapshotStore
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 def codex_notification(summary: dict[str, Any]) -> str:
-    if summary["status"] in {"COMPLETE", "BASELINE_COMPLETE"}:
+    if summary["status"] == "COMPLETE":
         return (
             "CODEX_NOTIFY: Amazon 新品榜采集成功；"
             f"{summary['sources_succeeded']}/{summary['sources_total']} 个数据源，"
-            f"{summary['observations_total']} 条唯一记录。汇总：{summary['summary_path']}"
+            f"{summary['observations_total']} 条唯一记录。数据库：{summary['database']}"
         )
     return (
         "CODEX_NOTIFY: Amazon 新品榜采集未完整完成；"
         f"完整 {summary['sources_succeeded']}，不足目标 {summary['sources_partial']}，"
         f"风控阻断 {summary['sources_blocked']}，"
-        f"失败 {summary['sources_failed']}。请查看：{summary['summary_path']}"
+        f"失败 {summary['sources_failed']}。详情见当前运行日志。"
     )
 
 
@@ -37,7 +37,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=ROOT / "config" / "sources.json")
     parser.add_argument("--browser-config", type=Path, default=ROOT / "env" / "browser.json")
     parser.add_argument("--db", type=Path, default=ROOT / "data" / "new_releases.db")
-    parser.add_argument("--output-root", type=Path, default=ROOT / "outputs" / "daily")
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--limit", type=int)
     parser.add_argument("--source-limit", type=int, help="Run only the first N configured sources for diagnostics")
@@ -81,8 +80,7 @@ def main(argv: list[str] | None = None) -> int:
                     "sources": len(sources),
                     "browser": settings.channel,
                     "database": str(args.db),
-                    "snapshot_retention_days": int(policy.get("retention_days", 10)),
-                    "identity_retention_days": int(policy.get("identity_retention_days", 90)),
+                    "snapshot_retention_days": int(policy.get("retention_days", 7)),
                 },
                 ensure_ascii=False,
             )
@@ -95,10 +93,6 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         raise RuntimeError("Playwright is missing. Run: .\\env\\setup.ps1") from exc
 
-    run_dir = args.output_root / args.date
-    raw_dir = run_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
     lock_path = args.db.parent / "collector.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -106,10 +100,9 @@ def main(argv: list[str] | None = None) -> int:
     except FileExistsError as exc:
         raise RuntimeError(f"Another collector run is active: {lock_path}") from exc
 
-    store = TrendStore(
+    store = SnapshotStore(
         args.db,
-        retention_days=int(policy.get("retention_days", 10)),
-        identity_retention_days=int(policy.get("identity_retention_days", 90)),
+        retention_days=int(policy.get("retention_days", 7)),
     )
 
     results: list[dict[str, Any]] = []
@@ -120,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         lock_handle.write(started_at)
         lock_handle.close()
+        store.prune(date.fromisoformat(args.date))
 
         with sync_playwright() as playwright:
             launch_options: dict[str, Any] = {
@@ -136,12 +130,10 @@ def main(argv: list[str] | None = None) -> int:
 
             for index, source in enumerate(sources):
                 current_source_id = source_id(source)
-                raw_path = raw_dir / f"{current_source_id}.json"
 
                 try:
                     snapshot = collect_source(page, source, settings, limit)
                     snapshot["snapshot_date"] = args.date
-                    write_json(raw_path, snapshot)
 
                     changed = store.ingest(
                         snapshot["items"],
@@ -161,22 +153,9 @@ def main(argv: list[str] | None = None) -> int:
                             "top_list_complete": snapshot["top_list_complete"],
                             "pages_visited": snapshot["pages_visited"],
                             "ingested_or_updated": changed,
-                            "raw_path": str(raw_path),
                         }
                     )
                 except AccessControlBlocked as exc:
-                    write_json(
-                        raw_path,
-                        {
-                            "url": source["url"],
-                            "marketplace": source["marketplace"],
-                            "category": source["category"],
-                            "snapshot_date": args.date,
-                            "status": "blocked",
-                            "reason": str(exc),
-                            "items": [],
-                        },
-                    )
                     results.append(
                         {
                             "source": current_source_id,
@@ -222,28 +201,13 @@ def main(argv: list[str] | None = None) -> int:
     blocked = status_counts["blocked"]
     failed = status_counts["failed"]
 
-    successful_ids = {
-        result["source"]
-        for result in results
-        if result["status"] in {"ok", "partial"}
-    }
-    successful_urls = [
-        source["url"]
-        for source in sources
-        if source_id(source) in successful_ids
-    ]
-    history_sufficient = bool(successful_urls) and all(
-        len(store.snapshot_dates(url)) >= 2 for url in successful_urls
-    )
-
     if succeeded == len(sources):
-        status = "COMPLETE" if history_sufficient else "BASELINE_COMPLETE"
+        status = "COMPLETE"
     elif blocked:
         status = "BLOCKED"
     else:
         status = "PARTIAL"
 
-    summary_path = run_dir / "run_summary.json"
     summary = {
         "snapshot_date": args.date,
         "started_at": started_at,
@@ -255,19 +219,15 @@ def main(argv: list[str] | None = None) -> int:
         "sources_blocked": blocked,
         "sources_failed": failed,
         "observations_total": observations_total,
-        "history_sufficient": history_sufficient,
         "browser_channel": settings.channel,
         "browser_headless": settings.headless,
         "database": str(args.db),
         "snapshot_retention_days": store.retention_days,
-        "identity_retention_days": store.identity_retention_days,
         "results": results,
-        "summary_path": str(summary_path),
     }
-    write_json(summary_path, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(codex_notification(summary))
-    return 0 if status in {"COMPLETE", "BASELINE_COMPLETE"} else 2
+    return 0 if status == "COMPLETE" else 2
 
 
 if __name__ == "__main__":
