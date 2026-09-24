@@ -1,9 +1,10 @@
 {
-  "channel": "msedge",
-  "headless": false,
+  "channel": "chromium",
+  "headless": true,
   "slow_mo_ms": 75,
   "timeout_ms": 60000,
   "between_sources_seconds": 3.0,
   "scroll_steps": 12,
-  "scroll_pause_ms": 700
+  "scroll_pause_ms": 700,
+  "between_pages_seconds": 60
 }

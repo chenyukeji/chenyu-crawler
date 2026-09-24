@@ -3,15 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import signal
 import time
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from crawler.amazon import AccessControlBlocked, BrowserSettings, collect_source
+from crawler.amazon import AccessControlBlocked, BrowserSettings, ParseError
 from crawler.config import load_sources, source_id
+from crawler.retry import collect_with_retry
 from database.repository import SnapshotStore
+from contextlib import closing
+from crawler.lifecycle import CollectorLock, CollectorBusy, recover_interrupted, due_sources, latest_runs, now_shanghai, queued_sources, cancel_unavailable_queue
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,7 +32,7 @@ def codex_notification(summary: dict[str, Any]) -> str:
         "CODEX_NOTIFY: Amazon 新品榜采集未完整完成；"
         f"完整 {summary['sources_succeeded']}，不足目标 {summary['sources_partial']}，"
         f"风控阻断 {summary['sources_blocked']}，"
-        f"失败 {summary['sources_failed']}。详情见当前运行日志。"
+        f"失败 {summary['sources_failed']}，未请求 {summary['sources_skipped']}。详情见当前运行日志。"
     )
 
 
@@ -37,11 +41,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=ROOT / "config" / "sources.json")
     parser.add_argument("--browser-config", type=Path, default=ROOT / "env" / "browser.json")
     parser.add_argument("--db", type=Path, default=ROOT / "data" / "new_releases.db")
-    parser.add_argument("--date", default=date.today().isoformat())
+    parser.add_argument("--date", default=now_shanghai().date().isoformat())
     parser.add_argument("--limit", type=int)
     parser.add_argument("--source-limit", type=int, help="Run only the first N configured sources for diagnostics")
     parser.add_argument("--channel", choices=("msedge", "chrome", "chromium"))
     parser.add_argument("--headless", action="store_true", help="Diagnostic option; normal runs use a visible browser")
+    parser.add_argument("--queued", action="store_true", help="Run pending per-source requests")
+    parser.add_argument("--source-id", action="append", help="Run only the selected enabled source ids")
+    parser.add_argument("--retry-due", action="store_true", help="Only collect enabled sources whose delayed retry is due")
+    parser.add_argument("--scheduled", action="store_true", help="Skip initial collection if this date already has runs")
     parser.add_argument("--validate-only", action="store_true")
     return parser
 
@@ -53,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     config, sources = load_sources(args.config)
+
+    if args.source_id:
+        selected = set(args.source_id)
+        if not selected <= {source_id(s) for s in sources}:
+            raise ValueError("Unknown or disabled source id")
+        sources = [s for s in sources if source_id(s) in selected]
 
     if args.source_limit is not None:
         if args.source_limit < 1:
@@ -93,37 +107,52 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         raise RuntimeError("Playwright is missing. Run: .\\env\\setup.ps1") from exc
 
-    lock_path = args.db.parent / "collector.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        lock_handle = lock_path.open("x", encoding="utf-8")
-    except FileExistsError as exc:
-        raise RuntimeError(f"Another collector run is active: {lock_path}") from exc
+    with CollectorLock(args.db.parent / "collector.lock"):
+        store = SnapshotStore(args.db, retention_days=int(policy.get("retention_days", 7)))
+        recover_interrupted(store)
+        cancel_unavailable_queue(store, config["sources"], now_shanghai())
+        with closing(store.connect()) as connection:
+            previous = latest_runs(connection, args.date)
+            if args.queued:
+                sources = queued_sources(connection, sources, now_shanghai())
+            elif args.retry_due:
+                if args.date != now_shanghai().date().isoformat():
+                    raise ValueError("Delayed retries are only allowed for today")
+                sources = due_sources(connection, sources, now_shanghai())
+            elif args.scheduled:
+                sources = [s for s in sources if s["url"] not in previous]
+        if not sources:
+            print("No delayed retries are due", flush=True)
+            return 0
+        old_term = signal.getsignal(signal.SIGTERM)
+        def terminate(signum, frame):
+            raise KeyboardInterrupt("Collector terminated")
+        signal.signal(signal.SIGTERM, terminate)
+        try:
+            return execute_collection(args, sources, settings, limit, store, previous, PlaywrightError, sync_playwright)
+        finally:
+            signal.signal(signal.SIGTERM, old_term)
 
-    store = SnapshotStore(
-        args.db,
-        retention_days=int(policy.get("retention_days", 7)),
-    )
 
+def execute_collection(args, sources, settings, limit, store, previous, PlaywrightError, sync_playwright):
     results: list[dict[str, Any]] = []
     observations_total = 0
-    stopped = False
-    started_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    evidence_root = ROOT / "data" / "diagnostics" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    started_at = now_shanghai().isoformat(timespec="microseconds")
     run_ids: dict[str, str] = {}
     finished_run_ids: set[str] = set()
 
     try:
-        lock_handle.write(started_at)
-        lock_handle.close()
         store.prune(date.fromisoformat(args.date))
         for source in sources:
             current_source_id = source_id(source)
-            run_ids[current_source_id] = store.start_run(
+            run_ids[current_source_id] = store.enqueue_run(
                 source_url=source["url"],
                 marketplace=source["marketplace"],
                 category=source["category"],
                 snapshot_date=args.date,
                 started_at=started_at,
+                retry_round=(previous.get(source["url"], {}).get("retry_round", 0) + (1 if args.retry_due else 0)),
             )
 
         with sync_playwright() as playwright:
@@ -142,8 +171,11 @@ def main(argv: list[str] | None = None) -> int:
             for index, source in enumerate(sources):
                 current_source_id = source_id(source)
 
+                if not store.mark_running(run_ids[current_source_id]):
+                    continue
+
                 try:
-                    snapshot = collect_source(page, source, settings, limit)
+                    snapshot = collect_with_retry(page, source, settings, limit, evidence_root / current_source_id)
                     snapshot["snapshot_date"] = args.date
 
                     changed = store.ingest(
@@ -152,15 +184,14 @@ def main(argv: list[str] | None = None) -> int:
                         marketplace=source["marketplace"],
                         category=source["category"],
                         snapshot_date=args.date,
+                        preserve_more_complete=True,
                     )
                     observations_total += len(snapshot["items"])
                     source_status = str(snapshot["status"])
-                    run_status = "COMPLETE" if source_status == "ok" else "FAILED"
+                    run_status = "COMPLETE" if source_status == "ok" else "PARTIAL"
                     run_error = None
-                    if run_status == "FAILED":
-                        run_error = (
-                            f"只采集到 {len(snapshot['items'])}/{limit} 条，榜单结果不完整"
-                        )
+                    if run_status == "PARTIAL":
+                        run_error = snapshot["error_message"]
                     store.finish_run(
                         run_ids[current_source_id],
                         status=run_status,
@@ -173,17 +204,27 @@ def main(argv: list[str] | None = None) -> int:
                             "source": current_source_id,
                             "status": source_status,
                             "items": len(snapshot["items"]),
-                            "target_items": limit,
+                            "target_items": snapshot.get("target_items", limit),
                             "top_list_complete": snapshot["top_list_complete"],
                             "pages_visited": snapshot["pages_visited"],
+                            "attempts": snapshot["attempts"],
+                            "page_diagnostics": snapshot["page_diagnostics"],
                             "ingested_or_updated": changed,
                         }
                     )
                 except AccessControlBlocked as exc:
+                    retained = (exc.partial_snapshot or {}).get("items", [])
+                    if retained:
+                        store.ingest(
+                            retained, source_url=source["url"], marketplace=source["marketplace"],
+                            category=source["category"], snapshot_date=args.date,
+                            preserve_more_complete=True,
+                        )
+                        observations_total += len(retained)
                     store.finish_run(
                         run_ids[current_source_id],
-                        status="FAILED",
-                        item_count=0,
+                        status="BLOCKED",
+                        item_count=len(retained),
                         error_message=str(exc),
                     )
                     finished_run_ids.add(run_ids[current_source_id])
@@ -191,15 +232,14 @@ def main(argv: list[str] | None = None) -> int:
                         {
                             "source": current_source_id,
                             "status": "blocked",
+                            "items": len(retained),
                             "reason": str(exc),
                         }
                     )
-                    stopped = True
-                    break
                 except (PlaywrightError, RuntimeError, OSError) as exc:
                     store.finish_run(
                         run_ids[current_source_id],
-                        status="FAILED",
+                        status="PARSE_ERROR" if isinstance(exc, ParseError) else "FAILED",
                         item_count=0,
                         error_message=str(exc),
                     )
@@ -217,41 +257,19 @@ def main(argv: list[str] | None = None) -> int:
 
             context.close()
             browser.close()
-    except Exception as exc:
+    except BaseException as exc:
         for run_id in run_ids.values():
-            if run_id not in finished_run_ids:
+            with closing(store.connect()) as c:
+                active = c.execute("SELECT status FROM collection_runs WHERE run_id=?", (run_id,)).fetchone()
+            if run_id not in finished_run_ids and active and active[0] == "RUNNING":
                 store.finish_run(
                     run_id,
-                    status="FAILED",
+                    status="INTERRUPTED" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "FAILED",
                     item_count=0,
-                    error_message=str(exc),
+                    error_message=f"{type(exc).__name__}: {exc}",
                 )
                 finished_run_ids.add(run_id)
         raise
-    finally:
-        lock_path.unlink(missing_ok=True)
-
-    processed_ids = {result["source"] for result in results}
-    if stopped:
-        for source in sources:
-            current_source_id = source_id(source)
-            if current_source_id not in processed_ids:
-                run_id = run_ids[current_source_id]
-                if run_id not in finished_run_ids:
-                    store.finish_run(
-                        run_id,
-                        status="FAILED",
-                        item_count=0,
-                        error_message="Run stopped after access control",
-                    )
-                    finished_run_ids.add(run_id)
-                results.append(
-                    {
-                        "source": current_source_id,
-                        "status": "skipped",
-                        "reason": "Run stopped after access control",
-                    }
-                )
 
     status_counts = Counter(result["status"] for result in results)
     succeeded = status_counts["ok"]
@@ -276,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         "sources_partial": partial,
         "sources_blocked": blocked,
         "sources_failed": failed,
+        "sources_skipped": status_counts["skipped"],
         "observations_total": observations_total,
         "browser_channel": settings.channel,
         "browser_headless": settings.headless,

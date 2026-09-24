@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
 
-from crawler.amazon import parse_number
+from crawler.amazon import parse_number, actual_rank
+from crawler.lifecycle import now_shanghai, next_retry_time, TERMINAL_STATUSES
 from database.schema import initialize_schema
 
 
@@ -42,6 +43,7 @@ class SnapshotStore:
         marketplace: str,
         snapshot_date: str,
         category: str,
+        preserve_more_complete: bool = False,
     ) -> int:
         rows = list(items)
         if not rows:
@@ -54,6 +56,9 @@ class SnapshotStore:
             image_url = str(item.get("image_url") or "").strip()
             if not asin or not title or not image_url:
                 continue
+            rank = actual_rank(item.get("rank"))
+            if rank is None:
+                raise ValueError("Cannot store product without an actual positive rank")
             product_url = str(item.get("product_url") or "").strip()
             created_at = datetime.now().astimezone().isoformat(timespec="seconds")
             values.append(
@@ -62,7 +67,7 @@ class SnapshotStore:
                     marketplace.upper(),
                     category,
                     snapshot_date,
-                    int(parse_number(item.get("rank"), 9999)),
+                    rank,
                     asin,
                     title,
                     int(parse_number(item.get("review_count"), 0)),
@@ -77,6 +82,13 @@ class SnapshotStore:
 
         with closing(self.connect()) as connection:
             with connection:
+                if preserve_more_complete:
+                    existing = connection.execute(
+                        "SELECT COUNT(*) FROM observations WHERE source_url = ? AND snapshot_date = ?",
+                        (source_url, snapshot_date),
+                    ).fetchone()[0]
+                    if existing > len(values):
+                        return 0
                 connection.execute(
                     "DELETE FROM observations WHERE source_url = ? AND snapshot_date = ?",
                     (source_url, snapshot_date),
@@ -115,6 +127,7 @@ class SnapshotStore:
         category: str,
         snapshot_date: str,
         started_at: str,
+        retry_round: int = 0,
     ) -> str:
         run_id = uuid4().hex
         with closing(self.connect()) as connection:
@@ -123,8 +136,8 @@ class SnapshotStore:
                     """
                     INSERT INTO collection_runs (
                         run_id, source_url, marketplace, category, snapshot_date,
-                        started_at, status, item_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', 0)
+                        started_at, status, item_count, retry_round
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'RUNNING', 0, ?)
                     """,
                     (
                         run_id,
@@ -133,9 +146,30 @@ class SnapshotStore:
                         category,
                         snapshot_date,
                         started_at,
+                        retry_round,
                     ),
                 )
         return run_id
+
+    def enqueue_run(self, *, source_url, marketplace, category, snapshot_date, started_at, retry_round=None):
+        """Persist one pending request per source/day, even while another source runs."""
+        with closing(self.connect()) as c:
+            with c:
+                c.execute("BEGIN IMMEDIATE")
+                active = c.execute("SELECT run_id FROM collection_runs WHERE source_url=? AND snapshot_date=? AND status IN ('QUEUED','RUNNING') ORDER BY started_at DESC,rowid DESC LIMIT 1", (source_url,snapshot_date)).fetchone()
+                if active:
+                    return active[0]
+                if retry_round is None:
+                    retry_round = c.execute("SELECT COALESCE(MAX(retry_round),0) FROM collection_runs WHERE source_url=? AND snapshot_date=?", (source_url,snapshot_date)).fetchone()[0]
+                run_id = uuid4().hex
+                c.execute("""INSERT INTO collection_runs (run_id,source_url,marketplace,category,snapshot_date,started_at,status,item_count,retry_round)
+                             VALUES (?,?,?,?,?,?,'QUEUED',0,?)""", (run_id,source_url,marketplace,category,snapshot_date,started_at,retry_round))
+                return run_id
+
+    def mark_running(self, run_id):
+        with closing(self.connect()) as c:
+            with c:
+                return c.execute("UPDATE collection_runs SET status='RUNNING', next_retry_at=NULL WHERE run_id=? AND status='QUEUED'", (run_id,)).rowcount == 1
 
     def finish_run(
         self,
@@ -144,19 +178,25 @@ class SnapshotStore:
         status: str,
         item_count: int,
         error_message: str | None = None,
+        now: datetime | None = None,
     ) -> None:
-        if status not in {"COMPLETE", "FAILED"}:
-            raise ValueError("Run status must be COMPLETE or FAILED")
-        finished_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        if status not in TERMINAL_STATUSES:
+            raise ValueError(f"Invalid terminal run status: {status}")
+        now = now or now_shanghai()
+        finished_at = now.isoformat(timespec="seconds")
         with closing(self.connect()) as connection:
             with connection:
+                row = connection.execute("SELECT snapshot_date,retry_round FROM collection_runs WHERE run_id=?", (run_id,)).fetchone()
+                if row is None:
+                    raise ValueError(f"Unknown run: {run_id}")
+                next_retry_at = next_retry_time(status, row[0], row[1], now)
                 connection.execute(
                     """
                     UPDATE collection_runs
-                    SET finished_at = ?, status = ?, item_count = ?, error_message = ?
+                    SET finished_at = ?, status = ?, item_count = ?, error_message = ?, next_retry_at = ?
                     WHERE run_id = ?
                     """,
-                    (finished_at, status, item_count, error_message, run_id),
+                    (finished_at, status, item_count, error_message, next_retry_at, run_id),
                 )
 
     def prune(self, reference_date: date) -> int:

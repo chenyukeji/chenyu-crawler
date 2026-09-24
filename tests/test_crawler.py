@@ -22,7 +22,7 @@ class CollectorTests(unittest.TestCase):
         )
         self.assertIsNone(detect_access_blocker("Amazon Hot New Releases"))
 
-    def test_deduplicates_asins_and_rebuilds_rank(self) -> None:
+    def test_deduplicates_asins_and_preserves_rank(self) -> None:
         rows = [
             {"rank": 2, "asin": "B000000001", "title": "Small Pet Water Bowl", "review_count": "12"},
             {"rank": 3, "asin": "B000000001", "title": "Small Pet Water Bowl", "review_count": "12"},
@@ -30,7 +30,7 @@ class CollectorTests(unittest.TestCase):
         ]
         result = deduplicate_items(rows, 60)
         self.assertEqual([row["asin"] for row in result], ["B000000001", "B000000002"])
-        self.assertEqual([row["rank"] for row in result], [1, 2])
+        self.assertEqual([row["rank"] for row in result], [2, 9])
         self.assertEqual(result[1]["price"], 9.99)
 
     def test_deduplicate_items_sorts_by_rank_before_deduping(self) -> None:
@@ -41,7 +41,7 @@ class CollectorTests(unittest.TestCase):
         ]
         result = deduplicate_items(rows, 3)
         self.assertEqual([row["asin"] for row in result], ["B000000001", "B000000002", "B000000003"])
-        self.assertEqual([row["rank"] for row in result], [1, 2, 3])
+        self.assertEqual([row["rank"] for row in result], [2, 2, 5])
 
     def test_parses_localized_rating(self) -> None:
         self.assertEqual(parse_first_number("4.7 out of 5 stars"), 4.7)
