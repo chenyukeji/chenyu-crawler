@@ -9,16 +9,17 @@ from unittest.mock import patch
 
 from starlette.requests import Request
 
-from api.main import app, home, remove_source, run_now
+from api.main import app, home, remove_source, run_now, scheduler_state
 from crawler.config import load_config, save_config
 from database.schema import initialize_schema
+from database.repository import SnapshotStore
 from scheduler_loop import claim_daily_run
 
 
 class ConfigurationTests(unittest.TestCase):
     def test_only_configuration_page_is_registered(self) -> None:
         paths = {getattr(route, "path", "") for route in app.routes}
-        self.assertEqual(paths, {"/", "/config", "/run", "/source/delete"})
+        self.assertEqual(paths, {"/", "/config", "/run", "/source/delete", "/source/run", "/status"})
 
     def test_configuration_page_renders(self) -> None:
         request = Request(
@@ -35,11 +36,33 @@ class ConfigurationTests(unittest.TestCase):
                 "server": ("127.0.0.1", 8000),
             }
         )
-        response = home(request)
+        with tempfile.TemporaryDirectory() as directory:
+            store = SnapshotStore(Path(directory)/"test.db")
+            with patch("api.main.scheduler_state", return_value={}), patch("api.main.database_stats", return_value={"chart": []}), patch("api.main.connect_database",side_effect=store.connect):
+                response = home(request)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Amazon", response.body)
         self.assertIn("立即运行".encode(), response.body)
         self.assertIn("删除".encode(), response.body)
+
+    def test_partial_status_names_the_failed_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "collector.db"
+            connection = sqlite3.connect(path)
+            initialize_schema(connection)
+            connection.executemany(
+                "INSERT INTO collection_runs (run_id,source_url,marketplace,category,snapshot_date,started_at,status,item_count,error_message) VALUES (?,?,?,?,?,?,?,?,?)",
+                [("1", "https://www.amazon.de/gp/new-releases/baby", "DE", "baby", "2026-09-24", "2026-09-24T06:00:00+08:00", "COMPLETE", 100, None),
+                 ("2", "https://www.amazon.com/gp/new-releases/fashion", "US", "fashion", "2026-09-24", "2026-09-24T06:00:00+08:00", "FAILED", 0, "ACCESS_BLOCKED"),
+                 ("3", "https://www.amazon.de/gp/new-releases/baby", "DE", "baby", "2026-09-24", "2026-09-24T12:00:00+08:00", "COMPLETE", 100, None)],
+            )
+            connection.commit()
+            connection.close()
+            with patch("api.main.connect_database", side_effect=lambda: sqlite3.connect(path)):
+                state = scheduler_state()
+            self.assertEqual(state["last_status"], "partial")
+            self.assertIn("US/fashion: ACCESS_BLOCKED", state["last_message"])
+            self.assertIn("完整 1/2", state["last_message"])
 
     def test_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -129,7 +152,7 @@ class ConfigurationTests(unittest.TestCase):
             shanghai = timezone(timedelta(hours=8), name="Asia/Shanghai")
             before_schedule = datetime(2026, 9, 23, 5, 59, tzinfo=shanghai)
             after_schedule = datetime(2026, 9, 23, 6, 0, tzinfo=shanghai)
-            with patch("scheduler_loop.connect_database", side_effect=connect):
+            with patch("scheduler_loop.connect_database", side_effect=connect), patch("scheduler_loop.load_config", return_value={"sources":[{"enabled":True,"url":"https://example.com"}]}):
                 self.assertFalse(claim_daily_run(before_schedule, "06:00"))
                 self.assertTrue(claim_daily_run(after_schedule, "06:00"))
                 with closing(connect()) as connection:

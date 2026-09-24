@@ -42,9 +42,11 @@ CREATE TABLE IF NOT EXISTS collection_runs (
     snapshot_date TEXT NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE', 'FAILED')),
+    status TEXT NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'COMPLETE', 'PARTIAL', 'BLOCKED', 'SKIPPED', 'PARSE_ERROR', 'FAILED', 'INTERRUPTED')),
     item_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT
+    error_message TEXT,
+    retry_round INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT
 );
 """
 
@@ -52,7 +54,53 @@ CREATE TABLE IF NOT EXISTS collection_runs (
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.execute(OBSERVATIONS_TABLE_SQL)
     connection.execute(PRODUCT_SEEN_TABLE_SQL)
-    connection.execute(COLLECTION_RUNS_TABLE_SQL)
+    # Rebuild the old CHECK constraint atomically, preserving every run id.
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        old = connection.execute("SELECT sql FROM sqlite_master WHERE name='collection_runs'").fetchone()
+        if old and "QUEUED" not in old[0]:
+            reliable_schema = "INTERRUPTED" in old[0]
+            connection.execute("ALTER TABLE collection_runs RENAME TO collection_runs_legacy")
+            connection.execute(COLLECTION_RUNS_TABLE_SQL)
+            if reliable_schema:
+                connection.execute("""
+                    INSERT INTO collection_runs SELECT * FROM collection_runs_legacy
+                """)
+            else:
+                connection.execute("""
+                    INSERT INTO collection_runs (run_id,source_url,marketplace,category,snapshot_date,
+                        started_at,finished_at,status,item_count,error_message)
+                    SELECT run_id,source_url,marketplace,category,snapshot_date,started_at,finished_at,
+                        CASE WHEN status != 'FAILED' THEN status
+                             WHEN error_message LIKE '未请求：%' OR error_message = 'Run stopped after access control' THEN 'SKIPPED'
+                             WHEN error_message LIKE '%ACCESS_BLOCKED%' OR error_message LIKE '%access-control%' OR error_message LIKE 'Amazon returned HTTP %' THEN 'BLOCKED'
+                             WHEN error_message LIKE '本轮诊断主动中止%' THEN 'INTERRUPTED'
+                             WHEN item_count > 0 THEN 'PARTIAL'
+                             WHEN error_message LIKE '%no visible New Releases product cards%' OR error_message LIKE '%no valid ASIN/title%' THEN 'PARSE_ERROR'
+                             ELSE 'FAILED' END,
+                        item_count,error_message FROM collection_runs_legacy
+                """)
+            connection.execute("DROP TABLE collection_runs_legacy")
+            if not reliable_schema:
+                # Arm only today's latest retryable results, once during migration.
+                from crawler.lifecycle import now_shanghai, next_retry_time
+                now = now_shanghai()
+                rows = connection.execute("""
+                    SELECT run_id,status,snapshot_date FROM collection_runs r
+                    WHERE snapshot_date=? AND r.rowid=(
+                        SELECT n.rowid FROM collection_runs n
+                        WHERE n.source_url=r.source_url AND n.snapshot_date=r.snapshot_date
+                        ORDER BY n.started_at DESC,n.rowid DESC LIMIT 1)
+                """, (now.date().isoformat(),)).fetchall()
+                for run_id, status, snapshot_date in rows:
+                    connection.execute("UPDATE collection_runs SET next_retry_at=? WHERE run_id=?",
+                                       (next_retry_time(status, snapshot_date, 0, now), run_id))
+        else:
+            connection.execute(COLLECTION_RUNS_TABLE_SQL)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
     connection.executescript(
         """
         CREATE INDEX IF NOT EXISTS idx_observations_source_date_rank

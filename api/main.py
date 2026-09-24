@@ -7,7 +7,7 @@ import re
 from threading import Thread
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from crawler.config import (
@@ -17,6 +17,7 @@ from crawler.config import (
     validate_daily_schedule,
 )
 from crawler.amazon import validate_source
+from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
 
@@ -46,7 +47,7 @@ def scheduler_state() -> dict[str, str]:
     with closing(connect_database()) as connection:
         latest = connection.execute(
             """
-            SELECT started_at
+            SELECT snapshot_date
             FROM collection_runs
             ORDER BY started_at DESC
             LIMIT 1
@@ -57,9 +58,13 @@ def scheduler_state() -> dict[str, str]:
         rows = connection.execute(
             """
             SELECT snapshot_date, status, item_count, error_message,
-                   COALESCE(finished_at, started_at) AS updated_at
-            FROM collection_runs
-            WHERE started_at = ?
+                   COALESCE(finished_at, started_at) AS updated_at, marketplace, category, retry_round, next_retry_at
+            FROM collection_runs AS r
+            WHERE snapshot_date = ? AND r.rowid = (
+                SELECT newer.rowid FROM collection_runs AS newer
+                WHERE newer.source_url = r.source_url AND newer.snapshot_date = r.snapshot_date
+                ORDER BY newer.started_at DESC, newer.rowid DESC LIMIT 1
+            )
             ORDER BY marketplace, category
             """,
             (str(latest[0]),),
@@ -67,19 +72,21 @@ def scheduler_state() -> dict[str, str]:
     if not rows:
         return {}
     statuses = {str(row[1]) for row in rows}
-    if "RUNNING" in statuses:
+    if statuses & {"RUNNING", "QUEUED"}:
         status = "running"
-    elif "FAILED" in statuses:
-        status = "failed"
+    elif statuses != {"COMPLETE"}:
+        status = "partial" if any(int(row[2]) > 0 for row in rows) else "failed"
     else:
         status = "success"
-    errors = [str(row[3]) for row in rows if row[3]]
+    labels = {"QUEUED": "等待中", "RUNNING": "采集中", "COMPLETE": "完整", "PARTIAL": "部分成功", "BLOCKED": "访问受限",
+              "SKIPPED": "未请求", "PARSE_ERROR": "解析失败", "FAILED": "采集失败", "INTERRUPTED": "异常中断"}
+    details = []
+    for row in rows:
+        retry = f"；下次补抓 {row[8]}" if row[8] else ""
+        details.append(f"{row[5]}/{row[6]}: {row[3] or ''} [{labels.get(row[1], row[1])}，{row[2]} 条，补抓轮次 {row[7]}/2{retry}]")
     completed = sum(1 for row in rows if str(row[1]) == "COMPLETE")
-    message = (
-        "\n".join(errors)
-        if errors
-        else f"完成 {completed}/{len(rows)} 个数据源，共采集 {sum(int(row[2]) for row in rows)} 条。"
-    )
+    message = f"完整 {completed}/{len(rows)} 个数据源，最近结果共采集 {sum(int(row[2]) for row in rows)} 条。"
+    message += "\n" + "\n".join(details)
     return {
         "last_attempt_date": str(rows[0][0]),
         "last_status": status,
@@ -133,6 +140,79 @@ def database_stats() -> dict:
     }
 
 
+CATEGORY_NAMES = {"baby-products": "母婴用品", "fashion": "服饰", "beauty": "美容个护",
+                  "home-garden": "家居生活", "handmade": "手工制品", "kitchen": "厨房用品",
+                  "lawn-garden": "庭院园艺", "pet-supplies": "宠物用品", "sporting-goods": "运动户外"}
+CARD_STATES = {"WAITING": ("等待中", "idle"), "QUEUED": ("等待中", "queued"),
+               "RUNNING": ("采集中", "running"), "COMPLETE": ("已完成", "success"),
+               "PARTIAL": ("部分完成", "partial"), "BLOCKED": ("访问受限", "failed"),
+               "SKIPPED": ("未采集", "idle"), "PARSE_ERROR": ("解析失败", "failed"),
+               "FAILED": ("采集失败", "failed"), "INTERRUPTED": ("已中断", "partial"),
+               "DISABLED": ("已停用", "idle")}
+
+
+def today_source_cards(config, now=None):
+    now = now or now_shanghai()
+    today = now.date().isoformat()
+    with closing(connect_database()) as connection:
+        rows = latest_runs(connection, today)
+        saved = {r[0]: int(r[1]) for r in connection.execute(
+            "SELECT source_url,COUNT(*) FROM observations WHERE snapshot_date=? GROUP BY source_url", (today,))}
+    target = int(config.get("collection_policy", {}).get("max_items_per_source", 100))
+    cards = []
+    for source in config["sources"]:
+        row = rows.get(source["url"], {})
+        status = row.get("status", "WAITING") if source["enabled"] else "DISABLED"
+        label, css = CARD_STATES[status]
+        reason = row.get("error_message") or ""
+        if status == "QUEUED": reason = "已加入队列，轮到此类目时开始采集。"
+        elif status == "WAITING": reason = f"今日尚未采集，计划 {config['daily_schedule']} 开始。"
+        elif status == "DISABLED": reason = "已停用自动采集，启用并保存后可采集。"
+        card_target = min(target, row["item_count"]) if status == "COMPLETE" and row.get("item_count", 0) > 0 else target
+        cards.append(dict(source, source_id=source_id(source), name=CATEGORY_NAMES.get(source["category"],source["category"]),
+                          today=today, today_status=status, status_label=label, status_class=css,
+                          saved_count=saved.get(source["url"],0), target=card_target,
+                          percent=100 if status == "COMPLETE" else min(100,round(saved.get(source["url"],0)/max(card_target,1)*100)),
+                          last_count=row.get("item_count",0), reason=reason,
+                          updated_at=row.get("finished_at") or row.get("started_at") or "",
+                          next_retry_at=row.get("next_retry_at") or "",
+                          can_run=source["enabled"] and status not in {"QUEUED","RUNNING"},
+                          button_label="重新采集" if row else "立即采集"))
+    return cards
+
+
+def card_summary(cards):
+    enabled = [s for s in cards if s['enabled']]
+    complete = sum(s['today_status']=='COMPLETE' for s in enabled)
+    queued = sum(s['today_status']=='QUEUED' for s in enabled)
+    running = sum(s['today_status']=='RUNNING' for s in enabled)
+    return f"今天已完成 {complete}/{len(enabled)} 个类目 · 采集中 {running} · 已排队 {queued}"
+
+
+@app.get("/status")
+def live_status():
+    config = load_config(CONFIG_PATH)
+    cards = today_source_cards(config)
+    return {"sources": cards, "summary": card_summary(cards), "state": scheduler_state(), "stats": database_stats()}
+
+
+@app.post("/source/run")
+async def run_source(request: Request):
+    form = await request.form()
+    target_id = str(form.get("source_id", "")).strip()
+    try:
+        if not target_id:
+            raise ValueError("请选择一个类目")
+        start_manual_run(target_id)
+    except ValueError as exc:
+        if "application/json" in request.headers.get("accept", ""):
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return templates.TemplateResponse(request,"index.html",page_context(request,error=str(exc)),status_code=400)
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"accepted": True, "source_id": target_id}, status_code=202)
+    return RedirectResponse("/?run_started=true", status_code=303)
+
+
 def page_context(
     request: Request,
     *,
@@ -143,7 +223,7 @@ def page_context(
     error: str = "",
 ) -> dict:
     config = load_config(CONFIG_PATH)
-    sources = [dict(source, source_id=source_id(source)) for source in config["sources"]]
+    sources = today_source_cards(config)
     enabled_count = sum(1 for source in sources if source["enabled"])
     return {
         "request": request,
@@ -152,6 +232,8 @@ def page_context(
         "retention_days": config["collection_policy"]["retention_days"],
         "sources": sources,
         "enabled_count": enabled_count,
+        "today_label": now_shanghai().date().isoformat(),
+        "card_summary": card_summary(sources),
         "marketplace_count": len({source["marketplace"] for source in sources}),
         "state": scheduler_state(),
         "stats": database_stats(),
