@@ -16,12 +16,17 @@
     button, input, select { font: inherit; }
     .hero { position: sticky; top: 0; z-index: 5; color: #26313e; background: #fff; border-bottom: 1px solid #e3e7ec; }
     .hero-inner, main { width: calc(100% - clamp(24px, 3vw, 64px)); margin: auto; }
-    .hero-inner { padding: 16px 0; display: flex; justify-content: space-between; gap: 24px; align-items: center; }
+    .hero-inner { padding: 14px 0; display: grid; grid-template-columns: minmax(250px,1fr) auto minmax(250px,1fr); gap: 24px; align-items: center; }
     .eyebrow { margin: 0 0 3px; color: #2563eb; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
     h1 { margin: 0; font-size: 20px; font-weight: 600; }
     .hero p { margin: 3px 0 0; color: #7b8491; font-size: 12px; }
     .hero-badge { border: 1px solid #e3e7ec; border-radius: 5px; padding: 6px 10px; color: #647081; background: #fff; white-space: nowrap; font-size: 12px; }
-    .hero-actions { display: flex; align-items: center; gap: 10px; }
+    .hero-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+    .view-nav { display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid #e3e7ec; border-radius: 7px; background: #f6f7f9; }
+    .view-nav a { padding: 7px 15px; border-radius: 5px; color: #647081; text-decoration: none; font-size: 13px; white-space: nowrap; }
+    .view-nav a:hover { color: #2563eb; }
+    .view-nav a.active { color: #2563eb; background: #fff; box-shadow: 0 1px 3px #26313e12; font-weight: 600; }
+    body[data-view="overview"] .today-view, body[data-view="today"] .overview-view { display: none; }
     main { margin-top: 20px; padding-bottom: 32px; }
     .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .stat, .panel { background: white; border: 1px solid #e3e7ec; box-shadow: none; }
@@ -30,6 +35,14 @@
     .stat-value { margin-top: 4px; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
     .stat-note { margin-top: 5px; color: #98a2b3; font-size: 12px; }
     .grid { display: grid; grid-template-columns: minmax(360px, .8fr) minmax(0, 1.4fr); gap: 18px; margin-top: 18px; }
+    .today-panel { margin-top: 0; }
+    .overview-today { margin-top: auto; padding-top: 20px; border-top: 1px solid #edf0f4; }
+    .overview-today strong { font-size: 13px; font-weight: 600; }
+    .overview-today .overview-count { margin-top: 12px; font-size: 26px; font-weight: 600; line-height: 1.2; }
+    .overview-today .overview-count span { color: #778195; font-size: 13px; font-weight: 400; }
+    .overview-today .progress-track { margin: 10px 0; height: 7px; }
+    .overview-today p { margin: 6px 0 12px; color: #778195; font-size: 12px; }
+    .overview-today a { color: #2563eb; font-size: 12px; text-decoration: none; }
     .panel { border-radius: 8px; padding: 18px; margin-top: 16px; }
     .grid .panel { margin-top: 0; }
     .panel-head { display: flex; justify-content: space-between; gap: 14px; align-items: center; margin-bottom: 12px; }
@@ -63,6 +76,9 @@
     .notice { padding: 13px 16px; border-radius: 12px; margin: 18px 0; font-weight: 700; }
     .notice.success { background: #e8f8f0; color: #087a55; }
     .notice.error { background: #fff0ee; color: #b42318; }
+    .save-feedback { margin: 0 0 12px; color: #398060; font-size: 12px; }
+    .save-feedback.error { color: #b42318; }
+    .save-feedback[hidden] { display: none; }
     .source-tools { display: flex; gap: 12px; align-items: center; }
     .source-tools input { width: 260px; }
     .table-wrap { overflow-x: auto; }
@@ -85,7 +101,7 @@
     .add-dialog .add-grid .field:last-child { grid-column: 1 / -1; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
     .hint { margin-top: 10px; color: #98a2b3; font-size: 12px; }
-    .actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+
     .primary { border: 0; border-radius: 6px; padding: 10px 18px; color: white; background: #2563eb; font-weight: 600; cursor: pointer; box-shadow: none; }
     .primary:hover { background: #1d4ed8; }
     .secondary { border: 1px solid #2563eb; border-radius: 6px; padding: 9px 15px; color: #2563eb; background: white; font-weight: 600; cursor: pointer; }
@@ -129,11 +145,24 @@
     .live-note { display:flex; align-items:center; gap:6px; font-size:12px; color:#6b7b8e; margin-top:12px; }
     .live-note::before { content:''; background:#10a476; width:6px; height:6px; border-radius:50%; }
     #card-feedback { margin:0 0 15px; font-size:13px; color:#1769aa; }
-    @media(max-width:1100px) { .panel-head { flex-wrap:wrap; } }
+    @media (min-width:1101px) and (min-height:680px) {
+      body { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+      .hero { flex: none; }
+      main { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-bottom: 20px; }
+      main > form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .grid { flex: 1; min-height: 0; }
+      .grid .panel { display: flex; flex-direction: column; min-height: 0; }
+      .grid .panel:last-child .chart { flex: 1; height: auto; min-height: 180px; }
+      .grid .panel:last-child .bar-track { height: clamp(180px, 42vh, 420px); }
+      .today-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .source-grid { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px; scrollbar-gutter: stable; }
+    }
+    @media(max-width:1100px) { .hero-inner { grid-template-columns: 1fr auto; } .view-nav { grid-column: 1 / -1; grid-row: 2; width: max-content; } .panel-head { flex-wrap:wrap; } }
     @media(max-width:640px) { h1 { font-size: 16px; } .hero p:not(.eyebrow) { display: none; } .hero-inner { gap: 12px; } .hero-badge { display: none; } .hero-actions .primary { padding: 9px 11px; white-space: nowrap; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
   </style>
 </head>
-<body>
+{% set is_today = request.url.path in ['/today', '/source/run', '/source/delete'] %}
+<body data-view="{{ 'today' if is_today else 'overview' }}">
   <header class="hero">
     <div class="hero-inner">
       <div>
@@ -141,12 +170,13 @@
         <h1>Amazon 新品榜采集器</h1>
         <p>管理每日采集计划、数据源和最近 7 天快照。</p>
       </div>
+      <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a></nav>
       <div class="hero-actions"><span class="hero-badge">Asia/Shanghai · 每日一次</span><button class="primary" id="open-add-source" type="button">＋ 新增类目</button></div>
     </div>
   </header>
 
   <main>
-    <section class="stats">
+    <section class="stats overview-view">
       <article class="stat"><div class="stat-label">启用数据源</div><div class="stat-value">{{ enabled_count }}</div><div class="stat-note">共 {{ sources|length }} 个配置</div></article>
       <article class="stat"><div class="stat-label">快照记录</div><div class="stat-value" id="stat-observations">{{ stats.observations }}</div><div class="stat-note">最近 7 天</div></article>
       <article class="stat"><div class="stat-label">唯一 ASIN</div><div class="stat-value" id="stat-asins">{{ stats.unique_asins }}</div><div class="stat-note">当前数据库</div></article>
@@ -159,8 +189,9 @@
     {% if run_busy %}<div class="notice error">已有采集任务正在运行，请等待完成后再试。</div>{% endif %}
     {% if error %}<div class="notice error">{{ error }}</div>{% endif %}
 
+    <p id="config-feedback" class="save-feedback" role="status" aria-live="polite" hidden></p>
     <form method="post" action="/config">
-      <section class="grid">
+      <section class="grid overview-view">
         <article class="panel">
           <div class="panel-head"><h2>每日调度</h2><span id="overall-state" class="status {{ state.last_status or 'idle' }}">{{ {'running': '采集中', 'success': '完整成功', 'partial': '部分成功', 'failed': '失败'}.get(state.last_status, '尚未运行') }}</span></div>
           <div class="schedule-row">
@@ -181,6 +212,8 @@
             <div>更新时间：<span id="last-update">{{ state.updated_at or '—' }}</span></div>
           </div>
           {% if state.last_message %}<details><summary>查看各榜单状态、原因及补抓时间</summary><pre id="overall-log">{{ state.last_message }}</pre></details>{% endif %}
+          {% set complete_count = sources|selectattr('today_status', 'equalto', 'COMPLETE')|list|length %}
+          <div class="overview-today"><strong>今日采集进度</strong><div class="overview-count"><span id="overview-complete">{{ complete_count }}</span><span> / <span id="overview-total">{{ enabled_count }}</span> 个类目已完成</span></div><div class="progress-track"><div id="overview-progress" class="progress-fill" style="width: {{ (complete_count / enabled_count * 100)|round if enabled_count else 0 }}%"></div></div><p id="overview-summary">{{ card_summary }}</p><a href="/today">查看全部类目及原因 →</a></div>
         </article>
 
         <article class="panel">
@@ -197,7 +230,7 @@
         </article>
       </section>
 
-      <section class="panel">
+      <section class="panel today-panel today-view">
         <div class="panel-head">
           <div><h2>今日类目采集 <span class="muted">{{ today_label }}</span></h2><div id="card-summary" class="muted">{{ card_summary }}</div></div>
           <div class="source-tools">
@@ -228,7 +261,7 @@
           {% endfor %}
         </div>
         <p id="empty-filter" class="muted" hidden>没有匹配的类目。</p>
-        <div class="live-note" id="live-note">状态每 5 秒更新；勾选变更需点击“保存全部配置”。</div>
+        <div class="live-note" id="live-note">状态每 5 秒更新；自动采集开关修改后即时保存。</div>
       </section>
 
       <dialog id="add-source-dialog" class="add-dialog" aria-labelledby="add-source-title">
@@ -240,15 +273,16 @@
           <div class="field"><label for="new_url">新品榜 URL</label><input id="new_url" name="new_url" type="url" placeholder="https://www.amazon.com/gp/new-releases/..."></div>
         </div>
         <div class="hint">类目名称使用小写字母、数字和连字符；目前支持 Amazon 美国站和德国站。</div>
+        <p id="add-feedback" class="save-feedback error" role="alert" hidden></p>
         <div class="dialog-actions"><button class="secondary dialog-cancel" type="button">取消</button><button class="primary" id="save-new-source" type="submit">保存并新增</button></div>
       </dialog>
 
-      <div class="actions"><button class="primary" type="submit">保存全部配置</button></div>
     </form>
   </main>
   <script>
     const addDialog = document.querySelector('#add-source-dialog');
     document.querySelector('#open-add-source').addEventListener('click', () => {
+      document.querySelector('#add-feedback').hidden = true;
       addDialog.showModal();
       document.querySelector('#new_marketplace').focus();
     });
@@ -262,6 +296,52 @@
     addDialog.addEventListener('close', () => {
       for (const field of addFields) { field.value = ''; field.required = false; }
     });
+    addDialog.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target.matches('input')) {
+        event.preventDefault();
+        document.querySelector('#save-new-source').click();
+      }
+    });
+    const configForm = document.querySelector('form[action="/config"]');
+    const scheduleInput = document.querySelector('#daily_schedule');
+    const settingControls = [scheduleInput, ...document.querySelectorAll('.card-toggle input')];
+    const configFeedback = document.querySelector('#config-feedback');
+    let savedSchedule = scheduleInput.value;
+    function configPayload() {
+      return new URLSearchParams(new FormData(configForm));
+    }
+    async function sendConfig(payload) {
+      const response = await fetch('/config', {method:'POST', headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}, body:payload});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '配置保存失败');
+    }
+    function showConfigFeedback(message, error=false) {
+      configFeedback.textContent = message;
+      configFeedback.classList.toggle('error', error);
+      configFeedback.hidden = false;
+    }
+    async function saveSetting(input, previous) {
+      const payload = configPayload();
+      for (const control of settingControls) control.disabled = true;
+      showConfigFeedback('正在保存设置…');
+      try {
+        await sendConfig(payload);
+        if (input === scheduleInput) savedSchedule = input.value;
+        showConfigFeedback('设置已自动保存');
+      } catch (error) {
+        if (input.type === 'checkbox') input.checked = previous;
+        else input.value = previous;
+        showConfigFeedback(error.message, true);
+      } finally {
+        for (const control of settingControls) control.disabled = false;
+      }
+    }
+    scheduleInput.addEventListener('change', () => {
+      if (scheduleInput.value !== savedSchedule) void saveSetting(scheduleInput, savedSchedule);
+    });
+    for (const toggle of document.querySelectorAll('.card-toggle input')) {
+      toggle.addEventListener('change', () => void saveSetting(toggle, !toggle.checked));
+    }
     const search = document.querySelector('#source-search');
     const marketFilter = document.querySelector('#market-filter');
     const statusFilter = document.querySelector('#status-filter');
@@ -303,6 +383,12 @@
         const data = await response.json();
         data.sources.forEach(updateCard); filterCards();
         document.querySelector('#card-summary').textContent = data.summary;
+        document.querySelector('#overview-summary').textContent = data.summary;
+        const enabled = data.sources.filter(source => source.enabled);
+        const complete = enabled.filter(source => source.today_status === 'COMPLETE').length;
+        document.querySelector('#overview-complete').textContent = complete;
+        document.querySelector('#overview-total').textContent = enabled.length;
+        document.querySelector('#overview-progress').style.width = (enabled.length ? Math.round(complete / enabled.length * 100) : 0) + '%';
         const labels = {running:'采集中',success:'完整成功',partial:'部分成功',failed:'失败'};
         const overall = document.querySelector('#overall-state');
         overall.className = 'status ' + (data.state.last_status || 'idle'); overall.textContent = labels[data.state.last_status] || '尚未运行';
@@ -317,13 +403,28 @@
           const bar = document.querySelector('.bar-item[data-date="' + point.date + '"]');
           if (bar) {bar.querySelector('.bar-count').textContent=point.count;bar.querySelector('.bar').style.height=point.height+'%';}
         });
-        document.querySelector('#live-note').textContent = '状态已更新 · ' + new Date().toLocaleTimeString() + '；勾选变更需保存。';
+        document.querySelector('#live-note').textContent = '状态已更新 · ' + new Date().toLocaleTimeString() + '；自动采集开关即时保存。';
       } catch (error) {
         document.querySelector('#live-note').textContent = '状态暂未更新，将自动重试。';
       } finally {refreshing=false;}
     }
-    document.querySelector('form[action="/config"]').addEventListener('submit', async event => {
+    configForm.addEventListener('submit', async event => {
       const button = event.submitter;
+      if (button?.id === 'save-new-source') {
+        event.preventDefault();
+        button.disabled = true;
+        const feedback = document.querySelector('#add-feedback');
+        feedback.hidden = true;
+        try {
+          await sendConfig(configPayload());
+          window.location.assign('/today?saved=true');
+        } catch (error) {
+          feedback.textContent = error.message;
+          feedback.hidden = false;
+          button.disabled = false;
+        }
+        return;
+      }
       if (!button || !button.classList.contains('card-run')) return;
       event.preventDefault(); button.disabled = true;
       const feedback = document.querySelector('#card-feedback'); feedback.hidden=false;

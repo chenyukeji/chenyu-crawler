@@ -300,6 +300,27 @@ def home(
     )
 
 
+@app.get("/today", response_class=HTMLResponse)
+def today(
+    request: Request,
+    saved: bool = False,
+    deleted: bool = False,
+    run_started: bool = False,
+    run_busy: bool = False,
+):
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        page_context(
+            request,
+            saved=saved,
+            deleted=deleted,
+            run_started=run_started,
+            run_busy=run_busy,
+        ),
+    )
+
+
 @app.post("/run")
 def run_now():
     started = start_manual_run()
@@ -337,7 +358,7 @@ async def delete_source(request: Request):
             page_context(request, error=str(exc)),
             status_code=400,
         )
-    return RedirectResponse("/?deleted=true", status_code=303)
+    return RedirectResponse("/today?deleted=true", status_code=303)
 
 
 @app.post("/config", response_class=HTMLResponse)
@@ -377,10 +398,14 @@ async def update_config(request: Request):
             source["enabled"] = source_id(source) in enabled_ids
         save_config(CONFIG_PATH, config)
     except ValueError as exc:
+        if "application/json" in request.headers.get("accept", ""):
+            return JSONResponse({"error": str(exc)}, status_code=400)
         return templates.TemplateResponse(
             request,
             "index.html",
             page_context(request, error=str(exc)),
             status_code=400,
         )
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"saved": True})
     return RedirectResponse("/?saved=true", status_code=303)

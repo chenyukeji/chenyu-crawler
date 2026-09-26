@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sqlite3
 import tempfile
@@ -5,11 +6,12 @@ import unittest
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 from unittest.mock import patch
 
 from starlette.requests import Request
 
-from api.main import app, home, remove_source, run_now, scheduler_state
+from api.main import app, home, remove_source, run_now, scheduler_state, update_config
 from crawler.config import load_config, save_config
 from database.schema import initialize_schema
 from database.repository import SnapshotStore
@@ -83,7 +85,7 @@ class PublicRestrictionMessageTests(unittest.TestCase):
 class ConfigurationTests(unittest.TestCase):
     def test_only_configuration_page_is_registered(self) -> None:
         paths = {getattr(route, "path", "") for route in app.routes}
-        self.assertEqual(paths, {"/", "/config", "/run", "/source/delete", "/source/run", "/status"})
+        self.assertEqual(paths, {"/", "/today", "/config", "/run", "/source/delete", "/source/run", "/status"})
 
     def test_configuration_page_renders(self) -> None:
         request = Request(
@@ -127,6 +129,43 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(state["last_status"], "partial")
             self.assertIn("US/fashion: ACCESS_BLOCKED", state["last_message"])
             self.assertIn("完整 1/2", state["last_message"])
+
+    def test_json_config_save_updates_schedule_and_only_selected_sources(self) -> None:
+        def request_for(fields):
+            body = urlencode(fields, doseq=True).encode()
+            async def receive():
+                return {"type": "http.request", "body": body, "more_body": False}
+            return Request({
+                "type": "http", "http_version": "1.1", "method": "POST",
+                "scheme": "http", "path": "/config", "raw_path": b"/config",
+                "query_string": b"", "server": ("127.0.0.1", 8000),
+                "headers": [(b"content-type", b"application/x-www-form-urlencoded"),
+                            (b"accept", b"application/json")],
+            }, receive)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sources.json"
+            sources = [
+                {"marketplace": market, "category": "baby-products",
+                 "url": f"https://www.amazon.{domain}/gp/new-releases/baby-products",
+                 "enabled": True}
+                for market, domain in (("US", "com"), ("DE", "de"))
+            ]
+            save_config(path, {"daily_schedule": "06:00", "sources": sources})
+            with patch("api.main.CONFIG_PATH", path):
+                response = asyncio.run(update_config(request_for({
+                    "daily_schedule": "07:30", "enabled_sources": ["US_baby-products"],
+                })))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(json.loads(response.body), {"saved": True})
+                saved = load_config(path)
+                self.assertEqual(saved["daily_schedule"], "07:30")
+                self.assertEqual([source["enabled"] for source in saved["sources"]], [True, False])
+
+                invalid = asyncio.run(update_config(request_for({"daily_schedule": "08:00"})))
+                self.assertEqual(invalid.status_code, 400)
+                self.assertIn("至少需要启用一个数据源", json.loads(invalid.body)["error"])
+                self.assertEqual(load_config(path), saved)
 
     def test_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
