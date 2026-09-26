@@ -496,19 +496,40 @@ def _build_snapshot(source, items, limit, page_diagnostics, pages_visited, stop_
         and p.get("cards") == p.get("new_unique_items") for p in page_diagnostics)
     exhausted = (stop_reason == "已到末页，页面没有可用下一页链接"
                  and page_diagnostics[-1].get("load_stable", False)) if page_diagnostics else False
-    complete = reached_limit or (exhausted and contiguous and clean_pages)
+    # Some Amazon lists visibly omit #50 on page one yet show #51-#100 on
+    # the terminal page. Keep the real ranks and accept only this exact,
+    # clean two-page pattern; other rank gaps remain incomplete.
+    site_omitted_rank_50 = (
+        str(source["marketplace"]).upper() == "US"
+        and limit == 100 and len(items) == 99 and missing_ranks == [50]
+        and pages_visited == 2 and len(page_diagnostics) == 2
+        and page_diagnostics[0].get("cards") == 49
+        and page_diagnostics[0].get("new_unique_items") == 49
+        and page_diagnostics[1].get("cards") == 50
+        and page_diagnostics[1].get("new_unique_items") == 50
+        and all(p.get("load_stable", False) and not p.get("access_blocked", False)
+                for p in page_diagnostics)
+        and exhausted and clean_pages
+    )
+    complete = reached_limit or (exhausted and contiguous and clean_pages) or site_omitted_rank_50
     effective_target = len(items) if complete and len(items) < limit else limit
+    if site_omitted_rank_50:
+        completion_reason = "网站未展示第50名；其余99个真实排名已采集至末页"
+    elif complete:
+        completion_reason = "已达到采集上限" if reached_limit else "榜单已采集至末页"
+    else:
+        completion_reason = ""
     return {
         "url": source["url"],
         "marketplace": str(source["marketplace"]).upper(),
         "category": source["category"],
         "snapshot_date": "",
         "status": "ok" if complete else "partial",
-        "error_message": "" if complete else f"INCOMPLETE: {len(items)}/{limit} 条；{stop_reason or '排名不完整'}；缺失排名={missing_ranks}；分页={json.dumps(page_diagnostics, ensure_ascii=False)}",
+        "error_message": completion_reason if site_omitted_rank_50 else ("" if complete else f"INCOMPLETE: {len(items)}/{limit} 条；{stop_reason or '排名不完整'}；缺失排名={missing_ranks}；分页={json.dumps(page_diagnostics, ensure_ascii=False)}"),
         "page_diagnostics": list(page_diagnostics),
         "target_items": effective_target,
         "max_items": limit,
-        "completion_reason": ("榜单已采集至末页" if not reached_limit else "已达到采集上限") if complete else "",
+        "completion_reason": completion_reason,
         "top_list_complete": complete,
         "pages_visited": pages_visited,
         "items": items,

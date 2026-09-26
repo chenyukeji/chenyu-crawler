@@ -201,9 +201,9 @@ def execute_collection(args, sources, settings, limit, store, previous, Playwrig
                     observations_total += len(snapshot["items"])
                     source_status = str(snapshot["status"])
                     run_status = "COMPLETE" if source_status == "ok" else "PARTIAL"
-                    run_error = None
-                    if run_status == "PARTIAL":
-                        run_error = snapshot["error_message"]
+                    # A completed site-short list can carry a factual note,
+                    # such as Amazon omitting the visible #50 position.
+                    run_error = snapshot.get("error_message") or None
                     store.finish_run(
                         run_ids[current_source_id],
                         status=run_status,

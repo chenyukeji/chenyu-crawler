@@ -173,6 +173,29 @@ with CollectorLock(p/'collector.lock'):
             self.assertEqual(tuple(row), ('BLOCKED', 1, None))
             self.assertEqual(c.execute('SELECT rank FROM observations').fetchone()[0], 51)
 
+    def test_runner_persists_completed_site_short_reason_without_retry(self):
+        source = dict(self.source, marketplace='US', category='lawn-garden',
+                      url='https://www.amazon.com/gp/new-releases/lawn-garden')
+        config = self.root / 'sources.json'
+        config.write_text(json.dumps({'sources': [source], 'daily_schedule': '06:00'}))
+        reason = '网站未展示第50名；其余99个真实排名已采集至末页'
+        items = [dict(asin=f'B{rank:09d}', rank=rank, title='Product',
+                      image_url='https://example.test/image.png')
+                 for rank in range(1, 101) if rank != 50]
+        snapshot = dict(status='ok', items=items, error_message=reason,
+                        top_list_complete=True, pages_visited=2,
+                        attempts=[], page_diagnostics=[], target_items=99)
+        args = ['--config', str(config), '--db', str(self.store.path),
+                '--date', '2026-09-24']
+        with patch('run_daily.ROOT', self.root),              patch('playwright.sync_api.sync_playwright'),              patch('run_daily.collect_with_retry', return_value=snapshot),              redirect_stdout(io.StringIO()):
+            self.assertEqual(run_daily.main(args), 0)
+        with closing(self.store.connect()) as connection:
+            row = connection.execute(
+                'SELECT status,item_count,error_message,next_retry_at '
+                'FROM collection_runs WHERE category=?', ('lawn-garden',),
+            ).fetchone()
+        self.assertEqual(tuple(row), ('COMPLETE', 99, reason, None))
+
     def test_runner_attempts_each_category_after_another_is_restricted(self):
         from crawler.amazon import AccessControlBlocked
         first_us = dict(self.source, marketplace='US', category='baby-products', url='https://www.amazon.com/gp/new-releases/baby-products')

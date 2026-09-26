@@ -27,6 +27,39 @@ class ShortListTests(unittest.TestCase):
             self.assertEqual(result['status'], 'partial')
             self.assertFalse(result['top_list_complete'])
 
+    def test_site_omits_rank_50_but_clean_terminal_99_is_complete(self):
+        ranks = list(range(1, 50)) + list(range(51, 101))
+        items = [dict(rank=rank) for rank in ranks]
+        diagnostics = [
+            dict(cards=49, new_unique_items=49, rejected_cards=0,
+                 missing_rank_cards=0, load_stable=True),
+            dict(cards=50, new_unique_items=50, rejected_cards=0,
+                 missing_rank_cards=0, load_stable=True),
+        ]
+        terminal = '已到末页，页面没有可用下一页链接'
+        result = _build_snapshot(self.source, items, 100, diagnostics, 2, terminal)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['target_items'], 99)
+        self.assertTrue(result['top_list_complete'])
+        self.assertIn('未展示第50名', result['completion_reason'])
+        self.assertEqual(result['error_message'], result['completion_reason'])
+        self.assertEqual([item['rank'] for item in result['items']], ranks)
+
+        for changed_diagnostics, changed_pages, changed_stop in (
+            ([dict(diagnostics[0], load_stable=False), diagnostics[1]], 2, terminal),
+            ([dict(diagnostics[0], access_blocked=True), diagnostics[1]], 2, terminal),
+            ([dict(diagnostics[0], cards=50), diagnostics[1]], 2, terminal),
+            (diagnostics, 1, terminal),
+            (diagnostics, 2, '下一页链接重复'),
+        ):
+            with self.subTest(diagnostics=changed_diagnostics, pages=changed_pages,
+                              stop=changed_stop):
+                incomplete = _build_snapshot(
+                    self.source, items, 100, changed_diagnostics,
+                    changed_pages, changed_stop,
+                )
+                self.assertEqual(incomplete['status'], 'partial')
+
     def test_offline_two_pages_with_99_products_finish_without_retry(self):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)

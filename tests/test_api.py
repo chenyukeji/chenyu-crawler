@@ -43,6 +43,38 @@ class PublicRestrictionMessageTests(unittest.TestCase):
             self.assertEqual(card['status_label'], '自动化访问受限')
             self.assertEqual(card['reason'], public)
 
+    def test_site_omitted_rank_50_card_is_complete_99_of_99(self):
+        from api.main import today_source_cards
+        with tempfile.TemporaryDirectory() as directory:
+            store = SnapshotStore(Path(directory) / 'test.db')
+            source = {'marketplace': 'US', 'category': 'lawn-garden',
+                      'url': 'https://www.amazon.com/gp/new-releases/lawn-garden',
+                      'enabled': True}
+            when = datetime(2026, 9, 26, 12,
+                            tzinfo=timezone(timedelta(hours=8)))
+            rows = [dict(rank=rank, asin=f'B{rank:09d}', title=f'Product {rank}',
+                         image_url='https://example.test/image.png')
+                    for rank in range(1, 101) if rank != 50]
+            store.ingest(rows, source_url=source['url'], marketplace='US',
+                         category='lawn-garden', snapshot_date='2026-09-26')
+            run_id = store.start_run(source_url=source['url'], marketplace='US',
+                                     category='lawn-garden', snapshot_date='2026-09-26',
+                                     started_at=when.isoformat())
+            reason = '网站未展示第50名；其余99个真实排名已采集至末页'
+            store.finish_run(run_id, status='COMPLETE', item_count=99,
+                             error_message=reason, now=when)
+            with patch('api.main.connect_database', side_effect=store.connect):
+                card = today_source_cards(
+                    {'sources': [source],
+                     'collection_policy': {'max_items_per_source': 100},
+                     'daily_schedule': '06:00'}, now=when,
+                )[0]
+            self.assertEqual(card['status_label'], '已完成')
+            self.assertEqual((card['saved_count'], card['target'], card['percent']),
+                             (99, 99, 100))
+            self.assertEqual(card['reason'], reason)
+            self.assertEqual(card['next_retry_at'], '')
+
     def test_other_error_remains_unchanged(self):
         from api.main import public_error_message
         self.assertEqual(public_error_message('HTTP_ERROR: 500'), 'HTTP_ERROR: 500')
