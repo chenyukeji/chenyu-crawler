@@ -157,6 +157,47 @@
       .source-grid { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px; scrollbar-gutter: stable; }
     }
     @media(max-width:1100px) { .brand { min-width: 210px; } .hero-inner { gap: 16px; } .panel-head { flex-wrap:wrap; } }
+    @media(min-width:1200px) {
+      .today-panel { padding: 12px 14px; }
+      .today-panel .panel-head { margin-bottom: 8px; }
+      .today-panel h2 { font-size: 15px; }
+      .today-panel .muted { font-size: 11px; }
+      .source-tools { gap: 7px; }
+      .source-tools input, .source-tools select { min-height: 34px; padding: 5px 8px; }
+      .source-tools input { width: 195px; }
+      .source-tools select { width: 104px; }
+      .source-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+      .source-card { padding: 8px 10px; gap: 4px; }
+      .source-card .status, .source-card .market { padding: 3px 6px; font-size: 10px; line-height: 1.2; }
+      .card-title { font-size: 14px; line-height: 1.2; }
+      .card-category { margin-top: 1px; font-size: 10px; line-height: 1.2; }
+      .card-count { line-height: 1.2; }
+      .card-count strong { font-size: 21px; }
+      .card-count span { font-size: 10px; }
+      .card-count > span { display: none; }
+      .progress-track { height: 4px; margin-top: 3px; }
+      .card-meta { display: flex; align-items: center; justify-content: space-between; gap: 3px; white-space: nowrap; font-size: 10px; line-height: 1.2; }
+      .card-last-result { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .card-updated-line { flex: none; }
+      .retry-line:not([hidden]) { flex-basis: 100%; }
+      .card-details { font-size: 10px; line-height: 1.2; }
+      .card-actions { gap: 6px; }
+      .card-run { padding: 6px; font-size: 11px; line-height: 1.2; }
+      .card-actions .danger { padding: 5px 6px; font-size: 10px; line-height: 1.2; }
+      .card-footer { padding-top: 5px; }
+      .card-toggle, .card-link { font-size: 10px; line-height: 1.2; }
+      .card-toggle .toggle { width: 14px; height: 14px; }
+      .live-note { margin-top: 6px; font-size: 10px; line-height: 1.2; }
+    }
+    @media (min-width:1200px) and (max-height:800px) {
+      .today-panel { padding: 9px 12px; }
+      .today-panel .panel-head { margin-bottom: 5px; }
+      .source-card { padding: 6px 9px; gap: 3px; }
+      .card-category { display: none; }
+      .card-run { padding: 5px; }
+      .card-footer { padding-top: 3px; }
+      .live-note { margin-top: 4px; }
+    }
     @media(max-width:640px) { .hero-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 10px; } .brand { min-width: 0; padding: 12px 0; } .brand-mark { width: 32px; height: 32px; font-size: 19px; } .brand-copy h1 { font-size: 14px; } .hero-actions { grid-column: 2; grid-row: 1; } .hero-actions .primary { padding: 8px 10px; white-space: nowrap; font-size: 12px; } .view-nav { grid-column: 1 / -1; grid-row: 2; border-top: 1px solid #edf0f4; } .view-nav a { min-height: 42px; justify-content: center; flex: 1; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
   </style>
 </head>
@@ -239,14 +280,14 @@
           {% for source in sources %}
           <article class="source-card" data-source-id="{{ source.source_id }}" data-market="{{ source.marketplace }}" data-status="{{ source.today_status }}" data-search="{{ source.name }} {{ source.marketplace }} {{ source.category }} {{ source.url }}">
             <div class="card-top"><span class="market">{{ source.marketplace }} · {{ '美国站' if source.marketplace == 'US' else '德国站' }}</span><span class="card-badge status {{ source.status_class }}">{{ source.status_label }}</span></div>
-            <div><h3 class="card-title">{{ source.name }}</h3><div class="card-category">{{ source.category }}</div></div>
+            <div><h3 class="card-title" title="{{ source.category }}">{{ source.name }}</h3><div class="card-category">{{ source.category }}</div></div>
             <div>
               <div class="card-count"><div><strong class="saved-count">{{ source.saved_count }}</strong><span class="card-target"> / {{ source.target }} 条</span></div><span>今日已保存</span></div>
               <div class="progress-track"><div class="progress-fill" style="width:{{ source.percent }}%"></div></div>
             </div>
             <div class="card-meta">
-              <div class="card-last-result">{{ '本次正在采集，完成后更新结果' if source.today_status == 'RUNNING' else '本次结果：' ~ source.last_count ~ ' 条' }}</div>
-              <div>最近更新：<span class="card-updated">{{ source.updated_at.replace('T',' ')[:19] or '—' }}</span></div>
+              <div class="card-last-result">{{ '采集中，完成后更新' if source.today_status == 'RUNNING' else '本次 ' ~ source.last_count ~ ' 条' }}</div>
+              <div class="card-updated-line" title="{{ source.updated_at.replace('T',' ')[:19] or '暂无更新' }}">更新 <span class="card-updated">{{ source.updated_at.replace('T',' ')[11:16] or '—' }}</span></div>
               <div class="retry-line" {% if not source.next_retry_at %}hidden{% endif %}>下次补抓：<span class="card-retry">{{ source.next_retry_at.replace('T',' ')[:19] }}</span></div>
             </div>
             <details class="card-details" {% if not source.reason %}hidden{% endif %}><summary>查看原因与说明</summary><pre class="card-reason">{{ source.reason }}</pre></details>
@@ -360,8 +401,9 @@
       card.querySelector('.saved-count').textContent = source.saved_count;
       card.querySelector('.card-target').textContent = ' / ' + source.target + ' 条';
       card.querySelector('.progress-fill').style.width = source.percent + '%';
-      card.querySelector('.card-last-result').textContent = source.today_status === 'RUNNING' ? '本次正在采集，完成后更新结果' : '本次结果：' + source.last_count + ' 条';
-      card.querySelector('.card-updated').textContent = source.updated_at.replace('T',' ').slice(0,19) || '—';
+      card.querySelector('.card-last-result').textContent = source.today_status === 'RUNNING' ? '采集中，完成后更新' : '本次 ' + source.last_count + ' 条';
+      card.querySelector('.card-updated').textContent = source.updated_at.replace('T',' ').slice(11,16) || '—';
+      card.querySelector('.card-updated-line').title = source.updated_at.replace('T',' ').slice(0,19) || '暂无更新';
       card.querySelector('.retry-line').hidden = !source.next_retry_at;
       card.querySelector('.card-retry').textContent = source.next_retry_at.replace('T',' ').slice(0,19);
       card.querySelector('.card-details').hidden = !source.reason;
