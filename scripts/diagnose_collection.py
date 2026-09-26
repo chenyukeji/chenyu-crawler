@@ -24,17 +24,19 @@ def safe_url(url):
                       urlencode({k: v[0] for k, v in query.items() if k in {'pg', 'pageNumber'}}), ''))
 
 
-def collect_diagnostic(page, source, settings, limit, evidence_dir):
+def collect_diagnostic(page, source, settings, limit, evidence_dir, *, open_next_page):
     started = time.monotonic()
     responses = []
     pending = {}
     failures = []
+    tracked_pages = []
     allowed_host = urlsplit(source['url']).hostname
 
     def relevant(request):
         return (urlsplit(request.url).hostname == allowed_host
                 and request.resource_type in {'document', 'xhr', 'fetch'}
-                and request.frame == page.main_frame)
+                and request.frame.page in tracked_pages
+                and request.frame == request.frame.page.main_frame)
 
     def on_response(response):
         try:
@@ -72,15 +74,26 @@ def collect_diagnostic(page, source, settings, limit, evidence_dir):
         except Exception:
             pass
 
-    page.on('response', on_response)
-    page.on('requestfailed', on_failure)
-    page.on('requestfinished', on_finished)
+    def track_page(new_page):
+        tracked_pages.append(new_page)
+        new_page.on('response', on_response)
+        new_page.on('requestfailed', on_failure)
+        new_page.on('requestfinished', on_finished)
+        return new_page
+
+    track_page(page)
+
+    def open_tracked_page():
+        return track_page(open_next_page())
+
     try:
-        return collect_with_retry(page, source, settings, limit, evidence_dir, max_attempts=1)
+        return collect_with_retry(page, source, settings, limit, evidence_dir,
+                                  open_next_page=open_tracked_page, max_attempts=1)
     finally:
-        page.remove_listener('response', on_response)
-        page.remove_listener('requestfailed', on_failure)
-        page.remove_listener('requestfinished', on_finished)
+        for tracked_page in tracked_pages:
+            tracked_page.remove_listener('response', on_response)
+            tracked_page.remove_listener('requestfailed', on_failure)
+            tracked_page.remove_listener('requestfinished', on_finished)
         # The final document's finished event can still be queued at load time.
         for request in list(pending):
             if request.resource_type == 'document':
@@ -88,7 +101,7 @@ def collect_diagnostic(page, source, settings, limit, evidence_dir):
         for entry in pending.values():
             entry['body_unavailable'] = 'Request not finished before collection stopped'
         events = responses
-        report = {'source': source['category'], 'mode': 'ordinary_collector_one_attempt',
+        report = {'source': source['category'], 'mode': 'fresh_browser_page_one_attempt',
                   'events': events, 'request_failures': failures}
         path = Path(evidence_dir) / 'network-diagnostic.json'
         path.parent.mkdir(parents=True, exist_ok=True)

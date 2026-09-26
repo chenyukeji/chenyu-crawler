@@ -23,8 +23,9 @@ class PageResumeTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name)
-        self.page = self.browser.new_page()
-        self.addCleanup(self.page.close)
+        self.context = self.browser.new_context()
+        self.addCleanup(self.context.close)
+        self.page = self.context.new_page()
         self.visits = []
         self.source = dict(marketplace='US', category='beauty', url='https://www.amazon.com/gp/new-releases/beauty')
         self.second_attempt = 0
@@ -52,26 +53,16 @@ class PageResumeTests(unittest.TestCase):
             if not second:
                 body += '<ul class="a-pagination"><li class="a-last"><a href="?pg=2">Next</a></li></ul>'
             route.fulfill(status=200, content_type='text/html', body=body)
-        self.page.route('**/*', respond)
+        self.context.route('**/*', respond)
 
     def collect(self):
         with patch('crawler.retry.time.sleep'):
-            return collect_with_retry(self.page, self.source, BrowserSettings(scroll_pause_ms=0), 100, self.path)
-
-    def test_numbered_button_is_clicked_after_scrolling(self):
-        from crawler.amazon import _click_next_page
-        self.page.route('**/*', lambda route: route.fulfill(content_type='text/html', body='<div style="height:4000px">Products</div><ul class="a-pagination"><li><a href="?pg=2" onclick="sessionStorage.setItem(\'clicked\',\'2\'); sessionStorage.setItem(\'scroll\', window.scrollY)">2</a></li><li class="a-last"><a href="?pg=2" onclick="sessionStorage.setItem(\'clicked\',\'next\')">Next</a></li></ul>'))
-        self.page.goto(self.source['url'])
-        response = _click_next_page(self.page, self.source['url']+'?pg=2', BrowserSettings(scroll_pause_ms=20))
-        self.assertEqual(response.status, 200)
-        self.assertEqual(self.page.evaluate("sessionStorage.getItem('clicked')"), '2')
-        self.assertGreater(int(self.page.evaluate("sessionStorage.getItem('scroll')")), 0)
-        self.assertTrue(self.page.url.endswith('?pg=2'))
+            return collect_with_retry(
+                self.page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                self.path, open_next_page=self.context.new_page,
+            )
 
     def test_second_page_uses_independent_page_and_real_rank(self):
-        context = self.browser.new_context()
-        self.addCleanup(context.close)
-        self.page = context.new_page()
         visits = []
 
         def respond(route):

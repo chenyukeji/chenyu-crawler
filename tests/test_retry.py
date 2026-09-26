@@ -21,7 +21,8 @@ class RetryTests(unittest.TestCase):
         self.source = dict(marketplace='DE', category='kitchen')
 
     def run_retry(self):
-        return collect_with_retry(self.page, self.source, BrowserSettings(), 100, self.path)
+        return collect_with_retry(self.page, self.source, BrowserSettings(), 100, self.path,
+                                  open_next_page=MagicMock)
 
     @patch('crawler.retry.time.sleep')
     @patch('crawler.retry.collect_source')
@@ -56,7 +57,7 @@ class RetryTests(unittest.TestCase):
     @patch('crawler.retry.collect_source')
     def test_partial_data_survives_later_access_block(self, collect, sleep):
         items = [dict(asin='B000000001', rank=1, title='Product', image_url='https://example.com/image')]
-        def blocked_after_page(*args, on_checkpoint):
+        def blocked_after_page(*args, on_checkpoint, **kwargs):
             on_checkpoint(dict(status='partial', items=items, error_message='pending page'))
             raise AccessControlBlocked('unauthorized ai agent')
         collect.side_effect = blocked_after_page

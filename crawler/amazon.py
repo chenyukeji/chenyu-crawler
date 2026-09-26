@@ -243,32 +243,6 @@ def _next_page_url(page: Any) -> str:
     return ""
 
 
-def _click_next_page(page: Any, next_url: str, settings: BrowserSettings) -> Any:
-    """Click the real pagination link, preferring its numbered button."""
-    links = page.locator(".a-pagination a, li.a-last:not(.a-disabled) a, a[aria-label='Next page']")
-    candidates = []
-    for index in range(links.count()):
-        link = links.nth(index)
-        if urljoin(page.url, link.get_attribute("href") or "") == next_url and link.is_visible():
-            candidates.append(link)
-    if not candidates:
-        raise ParseError(f"PAGINATION_LINK_MISSING: 页面没有可点击的下一页链接; URL={next_url}")
-    link = next((item for item in candidates if (item.inner_text() or "").strip().isdigit()), candidates[0])
-    # Scroll the ordinary page until pagination is in view.
-    for _ in range(40):
-        box = link.bounding_box()
-        height = page.evaluate("window.innerHeight")
-        if box and 0 <= box['y'] and box['y'] + box['height'] <= height:
-            break
-        page.mouse.wheel(0, 850 if not box or box['y'] > 0 else -850)
-        page.wait_for_timeout(settings.scroll_pause_ms)
-    link.scroll_into_view_if_needed(timeout=settings.timeout_ms)
-    print(f"点击分页按钮 {link.inner_text().strip()}: {next_url}", flush=True)
-    with page.expect_navigation(wait_until="domcontentloaded", timeout=settings.timeout_ms) as navigation:
-        link.click(timeout=settings.timeout_ms)
-    return navigation.value
-
-
 def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次打开", page_number: int = 1) -> None:
     status_code = response.status if response is not None else 0
     body_text = page.locator("body").inner_text(timeout=15_000)
@@ -310,7 +284,9 @@ def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次�
 
 
 
-def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None, open_next_page: Any = None, on_active_page: Any = None) -> dict[str, Any]:
+def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, open_next_page: Any, on_checkpoint: Any = None, resume_from: dict | None = None, on_active_page: Any = None) -> dict[str, Any]:
+    if not callable(open_next_page):
+        raise ValueError("open_next_page must open a fresh browser page")
     retry_state = resume_from or {"url": source["url"], "items": [], "page_diagnostics": [], "visited_page_urls": [], "pages_visited": 0}
     checkpoint = (_build_snapshot(source, retry_state["items"], limit, retry_state["page_diagnostics"], retry_state["pages_visited"], "正在恢复失败页")
                   if retry_state["items"] else None)
@@ -335,7 +311,7 @@ def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings,
             on_checkpoint(snapshot)
 
     try:
-        return _collect_source(page, source, settings, limit, on_checkpoint=remember, resume_from=retry_state, on_cursor=remember_cursor, open_next_page=switch_page if open_next_page else None)
+        return _collect_source(page, source, settings, limit, on_checkpoint=remember, resume_from=retry_state, on_cursor=remember_cursor, open_next_page=switch_page)
     except AccessControlBlocked as exc:
         # A restriction can be embedded in a partly rendered product page.
         # Read only the DOM already returned: no scrolling, clicking or requests.
@@ -404,7 +380,7 @@ def _wait_for_page_settle(page: Any, *, max_polls: int = 60) -> dict:
     return {"settled": False, "ready_state": last_state.get('ready'), "waited_ms": (max_polls - 1) * 500}
 
 
-def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None, on_cursor: Any = None, open_next_page: Any = None) -> dict[str, Any]:
+def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, open_next_page: Any, on_checkpoint: Any = None, resume_from: dict | None = None, on_cursor: Any = None) -> dict[str, Any]:
     state = resume_from or {"url": source["url"], "items": [], "page_diagnostics": [], "visited_page_urls": [], "pages_visited": 0}
     extracted = list(state["items"])
     visited_page_urls = set(state["visited_page_urls"])
@@ -497,13 +473,9 @@ def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings
             print(f"{source['marketplace']}/{source['category']}: 页面加载稳定，额外等待 {settings.between_pages_seconds:g} 秒后访问第 {pages_visited + 1} 页", flush=True)
             page.wait_for_timeout(settings.between_pages_seconds * 1000)
             _check_page_access(page, response, stage="翻页前等待后", page_number=pages_visited)
-        if open_next_page:
-            # Follow the page's real pagination URL in an independent page.
-            # The runner opens it in a fresh browser process.
-            page = open_next_page()
-            response = page.goto(next_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
-        else:
-            response = _click_next_page(page, next_url, settings)
+        # Follow the real pagination URL in a fresh browser process.
+        page = open_next_page()
+        response = page.goto(next_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
         page.wait_for_timeout(600)
         _check_page_access(page, response, stage="翻页后", page_number=pages_visited + 1)
     items = deduplicate_items(extracted, limit)

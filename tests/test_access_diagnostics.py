@@ -54,7 +54,8 @@ class AccessDiagnosticsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                context = browser.new_context()
+                page = context.new_page()
                 calls = []
                 first = ''.join(f'<div class="zg-grid-general-faceout"><span class="zg-bdg-text">#{i}</span><a href="/dp/B{i:09d}">Product {i}</a><img alt="Product {i}" src="https://example.test/{i}.png"></div>' for i in range(1, 51))
                 first += '<ul class="a-pagination"><li class="a-last"><a href="?pg=2">Next</a></li></ul>'
@@ -65,10 +66,11 @@ class AccessDiagnosticsTests(unittest.TestCase):
                     calls.append(route.request.url)
                     body = '<h4>Continued access by an unauthorized AI agent violates Amazon conditions.</h4>' if '?pg=2' in route.request.url else first
                     route.fulfill(status=200, content_type='text/html', body=body)
-                page.route('**/*', respond)
+                context.route('**/*', respond)
                 source = dict(marketplace='US', category='beauty', url='https://www.amazon.com/gp/new-releases/beauty')
                 with self.assertRaises(AccessControlBlocked) as caught:
-                    collect_with_retry(page, source, BrowserSettings(scroll_pause_ms=0), 100, Path(tmp))
+                    collect_with_retry(page, source, BrowserSettings(scroll_pause_ms=0), 100, Path(tmp),
+                                       open_next_page=context.new_page)
                 self.assertEqual(len(calls), 2)
                 self.assertEqual(len(caught.exception.partial_snapshot['items']), 50)
                 self.assertEqual(caught.exception.diagnostics['stage'], '翻页后')
@@ -102,7 +104,7 @@ class MixedBlockedPageTests(unittest.TestCase):
             raise AccessControlBlocked('unauthorized ai agent', diagnostics={'page_number':2,'http_status':200})
         with patch('crawler.amazon._collect_source', side_effect=blocked), patch('crawler.amazon._extract_card', side_effect=second):
             with self.assertRaises(AccessControlBlocked) as caught:
-                collect_source(page, source, BrowserSettings(), 100)
+                collect_source(page, source, BrowserSettings(), 100, open_next_page=MagicMock())
         self.assertEqual([i['rank'] for i in caught.exception.partial_snapshot['items']], list(range(1,81)))
         self.assertFalse(caught.exception.partial_snapshot['top_list_complete'])
         page.goto.assert_not_called()
@@ -116,17 +118,20 @@ class DiagnosticCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
-                page.route('**/*', lambda route: route.fulfill(status=200, content_type='text/html', body='<p>unauthorized ai agent</p>' if 'pg=2' in route.request.url else '<div class="zg-grid-general-faceout">Product</div>', headers={'x-amz-rid':'test-request-id','set-cookie':'session=private-secret'}))
+                context = browser.new_context()
+                page = context.new_page()
+                context.route('**/*', lambda route: route.fulfill(status=200, content_type='text/html', body='<p>unauthorized ai agent</p>' if 'pg=2' in route.request.url else '<div class="zg-grid-general-faceout">Product</div>', headers={'x-amz-rid':'test-request-id','set-cookie':'session=private-secret'}))
                 source = dict(marketplace='US', category='beauty', url='https://www.amazon.com/gp/new-releases/beauty')
                 def navigate(page, *args, **kwargs):
                     page.goto(source['url'], wait_until='load')
                     page.wait_for_timeout(100)  # Dispatch completed-response callbacks before navigating.
-                    page.goto(source['url']+'?pg=2', wait_until='load')
-                    page.wait_for_timeout(100)
+                    second_page = kwargs['open_next_page']()
+                    second_page.goto(source['url']+'?pg=2', wait_until='load')
+                    second_page.wait_for_timeout(100)
                     return {'status':'blocked'}
                 with patch('scripts.diagnose_collection.collect_with_retry', side_effect=navigate):
-                    collect_diagnostic(page, source, BrowserSettings(), 100, Path(tmp))
+                    collect_diagnostic(page, source, BrowserSettings(), 100, Path(tmp),
+                                       open_next_page=context.new_page)
                 events = json.loads((Path(tmp)/'network-diagnostic.json').read_text())['events']
                 self.assertEqual(len(events), 2)
                 self.assertTrue(all(e['response_headers']['x-amz-rid'] == 'test-request-id' for e in events))

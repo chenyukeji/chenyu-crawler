@@ -31,7 +31,8 @@ class ShortListTests(unittest.TestCase):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page()
+                context = browser.new_context()
+                page = context.new_page()
                 visited = []
                 def respond(route):
                     if route.request.resource_type != 'document':
@@ -43,8 +44,9 @@ class ShortListTests(unittest.TestCase):
                     if not second:
                         body += '<ul class="a-pagination"><li class="a-last"><a href="?pg=2">Next</a></li></ul>'
                     route.fulfill(status=200, content_type='text/html', body=body)
-                page.route('**/*', respond)
-                result = collect_source(page, self.source, BrowserSettings(scroll_pause_ms=0), 100)
+                context.route('**/*', respond)
+                result = collect_source(page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                                        open_next_page=context.new_page)
                 self.assertEqual(result['status'], 'ok')
                 self.assertEqual(result['target_items'], 99)
                 self.assertEqual(len(result['items']), 99)

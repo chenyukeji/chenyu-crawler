@@ -13,8 +13,10 @@ from crawler.amazon import AccessControlBlocked, BrowserSettings, ParseError, Pa
 
 
 def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit: int,
-                       evidence_dir: Path, max_attempts: int = 3, open_next_page: Any = None) -> dict:
-    """Retry transient failures; never retry an explicit access restriction."""
+                       evidence_dir: Path, *, open_next_page: Any, max_attempts: int = 3) -> dict:
+    """Retry transient failures in fresh pages; stop on an explicit restriction."""
+    if not callable(open_next_page):
+        raise ValueError("open_next_page must open a fresh browser page")
     evidence_dir.mkdir(parents=True, exist_ok=True)
     history = []
     best = None
@@ -51,12 +53,11 @@ def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit
         started_at = datetime.now(timezone.utc).isoformat()
         started = time.monotonic()
         try:
-            if attempt > 1 and open_next_page:
+            if attempt > 1:
                 track_page(open_next_page())
                 active_page[0].set_default_timeout(settings.timeout_ms)
-            options = {"on_checkpoint": retain}
-            if open_next_page:
-                options.update(open_next_page=open_next_page, on_active_page=track_page)
+            options = {"on_checkpoint": retain, "open_next_page": open_next_page,
+                       "on_active_page": track_page}
             if resume_from is not None:
                 options["resume_from"] = resume_from
             snapshot = collect_source(active_page[0], source, settings, limit, **options)
