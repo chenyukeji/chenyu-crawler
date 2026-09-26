@@ -179,3 +179,9 @@ Linux 服务使用操作系统 `flock` 锁，锁文件存在本身不表示任�
 `resume-checkpoint.json` 记录失败页地址及此前成功页面，`attempts.json` 的 retry_page_url 标明恢复位置。检查点用于当前 collect_with_retry 调用；下一轮、跨日或进程重启不会自动将旧检查点拼入新榜单。失败页重试不叠加多份结果；跨页排名冲突、断档或重复 ASIN 造成的不足仍保持部分完成。明确访问限制直接停止，保留当前已返回的有效商品。
 
 回归测试覆盖第二页超时后恢复、空页后恢复、重试耗尽保留第一页、明确限制不继续重试，以及 99 条真实末页完成。部署环境为 Linux（进程锁使用 flock），仓库默认浏览器为 Playwright Chromium 无界面模式。
+
+## 运行环境与请求编号
+
+environment.json 额外记录进程的平台、Python 版本、是否来自 systemd，以及代理环境变量是否存在。只记录变量名，不保存代理地址、密码或 NO_PROXY 列表。环境变量存在不代表 Chromium 实际使用了代理，effective_network_route 保持 not_measured。
+
+正常页面、限制页及逐请求诊断统一保留允许列表内的响应头，包括 x-amz-rid、x-amzn-requestid、x-amz-cf-id，便于按时间与请求编号核查。不会记录 Set-Cookie 或 Authorization。此改动增强定位证据，不表示已解除 Amazon 访问限制。

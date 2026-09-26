@@ -2,11 +2,24 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from playwright.sync_api import sync_playwright
 from crawler.amazon import AccessControlBlocked, BrowserSettings, _check_page_access
 from crawler.retry import collect_with_retry
+
+
+class RuntimeDiagnosticsTests(unittest.TestCase):
+    def test_process_metadata_never_exposes_proxy_credentials(self):
+        from crawler.diagnostics import process_context
+        with patch.dict('os.environ', {'HTTPS_PROXY': 'http://user:private-password@proxy.invalid:7890/private-token', 'NO_PROXY': 'private-host.invalid'}, clear=True):
+            metadata = process_context()
+        encoded = json.dumps(metadata)
+        self.assertEqual(metadata['proxy_environment_present'], ['HTTPS_PROXY'])
+        self.assertEqual(metadata['effective_network_route'], 'not_measured')
+        self.assertTrue(metadata['proxy_bypass_configured'])
+        for sensitive in ['user:', 'private-password', 'proxy.invalid', 'private-token', 'private-host.invalid']:
+            self.assertNotIn(sensitive, encoded)
 
 
 class AccessDiagnosticsTests(unittest.TestCase):
@@ -100,7 +113,7 @@ class DiagnosticCaptureTests(unittest.TestCase):
             browser = p.chromium.launch(headless=True)
             try:
                 page = browser.new_page()
-                page.route('**/*', lambda route: route.fulfill(status=200, content_type='text/html', body='<p>unauthorized ai agent</p>' if 'pg=2' in route.request.url else '<div class="zg-grid-general-faceout">Product</div>'))
+                page.route('**/*', lambda route: route.fulfill(status=200, content_type='text/html', body='<p>unauthorized ai agent</p>' if 'pg=2' in route.request.url else '<div class="zg-grid-general-faceout">Product</div>', headers={'x-amz-rid':'test-request-id','set-cookie':'session=private-secret'}))
                 source = dict(marketplace='US', category='beauty', url='https://www.amazon.com/gp/new-releases/beauty')
                 def navigate(page, *args, **kwargs):
                     page.goto(source['url'], wait_until='load')
@@ -112,6 +125,8 @@ class DiagnosticCaptureTests(unittest.TestCase):
                     collect_diagnostic(page, source, BrowserSettings(), 100, Path(tmp))
                 events = json.loads((Path(tmp)/'network-diagnostic.json').read_text())['events']
                 self.assertEqual(len(events), 2)
+                self.assertTrue(all(e['response_headers']['x-amz-rid'] == 'test-request-id' for e in events))
+                self.assertNotIn('private-secret', json.dumps(events))
                 self.assertEqual(events[0]['product_card_markers'], 1)
                 self.assertFalse(events[0]['explicit_agent_restriction'])
                 self.assertTrue(events[1]['explicit_agent_restriction'])

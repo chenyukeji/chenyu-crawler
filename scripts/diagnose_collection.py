@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import run_daily
 from crawler.retry import collect_with_retry
+from crawler.diagnostics import safe_response_headers
 
 
 def safe_url(url):
@@ -41,8 +42,7 @@ def collect_diagnostic(page, source, settings, limit, evidence_dir):
                 headers = response.headers
                 entry = {'url': safe_url(response.url), 'type': response.request.resource_type,
                          'status': response.status, 'elapsed_seconds': round(time.monotonic()-started, 3),
-                         'response_headers': {k:v for k,v in headers.items() if k.lower() in
-                                              {'content-type','retry-after','date','age','x-cache','via','server'}}}
+                         'response_headers': safe_response_headers(headers)}
                 responses.append(entry)
                 pending[response.request] = entry
         except Exception:

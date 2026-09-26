@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from crawler.diagnostics import safe_response_headers
+
 BLOCKED_MARKERS = (
     "enter the characters you see below",
     "robot check",
@@ -283,9 +285,7 @@ def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次�
         else:
             kind, action = "HTTP_FORBIDDEN", "服务器拒绝访问，需检查访问权限"
         headers = response.headers if response is not None else {}
-        # Never persist cookies, authorization headers, or complete request headers.
-        safe_headers = {k: v for k, v in headers.items()
-                        if k.lower() in {"retry-after", "content-type", "date", "x-amz-rid", "x-amzn-requestid"}} if isinstance(headers, dict) else {}
+        safe_headers = safe_response_headers(headers)
         diagnostic = {"kind": kind, "stage": stage, "page_number": page_number,
                       "http_status": status_code, "url": page.url,
                       "marker": blocker, "response_headers": safe_headers, "action": action}
@@ -452,7 +452,7 @@ def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings
             else:
                 rejected += 1
         items_so_far = deduplicate_items(extracted, limit)
-        page_diagnostics.append({"url": current_url, "http_status": response.status if response else None, "cards": cards.count(), "rejected_cards": rejected, "missing_rank_cards": missing_rank_cards, "new_unique_items": len(items_so_far) - unique_before, "load_stable": (count >= 50 or stable_bottom >= 4) and settlement["settled"], "load_wait": settlement, "collected_at": datetime.now(timezone.utc).isoformat()})
+        page_diagnostics.append({"url": current_url, "response_headers": safe_response_headers(response.headers if response else {}), "http_status": response.status if response else None, "cards": cards.count(), "rejected_cards": rejected, "missing_rank_cards": missing_rank_cards, "new_unique_items": len(items_so_far) - unique_before, "load_stable": (count >= 50 or stable_bottom >= 4) and settlement["settled"], "load_wait": settlement, "collected_at": datetime.now(timezone.utc).isoformat()})
         if on_checkpoint:
             on_checkpoint(_build_snapshot(source, items_so_far, limit, page_diagnostics, pages_visited, "后续分页尚未完成"))
         if not settlement["settled"]:

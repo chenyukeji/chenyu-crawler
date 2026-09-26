@@ -8,6 +8,7 @@ from typing import Any
 
 from playwright.sync_api import Error as PlaywrightError
 
+from crawler.diagnostics import process_context
 from crawler.amazon import AccessControlBlocked, BrowserSettings, ParseError, PageCollectionError, collect_source
 
 
@@ -29,7 +30,7 @@ def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit
             temporary.write_text(json.dumps(best, ensure_ascii=False, indent=2), encoding='utf-8')
             temporary.replace(evidence_dir / 'best-snapshot.json')
 
-    environment = {"channel": settings.channel, "headless": settings.headless,
+    environment = {"process": process_context(), "channel": settings.channel, "headless": settings.headless,
                    "between_sources_seconds": settings.between_sources_seconds,
                    "between_pages_seconds": settings.between_pages_seconds}
     try:
