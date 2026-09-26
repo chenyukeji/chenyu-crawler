@@ -85,7 +85,7 @@ class PublicRestrictionMessageTests(unittest.TestCase):
 class ConfigurationTests(unittest.TestCase):
     def test_only_configuration_page_is_registered(self) -> None:
         paths = {getattr(route, "path", "") for route in app.routes}
-        self.assertEqual(paths, {"/", "/today", "/config", "/run", "/source/delete", "/source/run", "/status"})
+        self.assertEqual(paths, {"/", "/today", "/login", "/logout", "/config", "/run", "/source/delete", "/source/run", "/status"})
 
     def test_configuration_page_renders(self) -> None:
         request = Request(

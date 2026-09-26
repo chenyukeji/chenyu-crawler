@@ -57,14 +57,16 @@ created_at
 启动配置页和每日调度：
 
 ```powershell
-.\env\.venv\Scripts\python.exe -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+.\env\.venv\Scripts\python.exe -m uvicorn api.main:app --host 0.0.0.0 --port 8100
 ```
 
 打开：
 
 ```text
-http://localhost:8000/
+http://localhost:8100/
 ```
+
+采集管理页需要以 `admin` 登录，密码使用晨玙网站现有的管理员密码。采集器通过本机的网站认证接口校验，不另存密码；同一主机上的有效管理员登录状态可直接使用。网站后端地址默认 `http://127.0.0.1:8000`，需要变更时设置 `CHENYU_WEB_AUTH_BASE`。状态接口和所有采集、配置操作同样要求管理员登录。
 
 页面提供：
 

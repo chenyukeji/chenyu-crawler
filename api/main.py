@@ -5,10 +5,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import re
 from threading import Thread
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
+
+from api.auth import (
+    ADMIN_ACCOUNT, AuthenticationUnavailable, SESSION_COOKIE,
+    login_admin, verify_admin_session,
+)
 
 from crawler.config import (
     load_config,
@@ -41,6 +48,75 @@ app = FastAPI(
     lifespan=lifespan,
 )
 templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
+
+
+def safe_next_path(value: str) -> str:
+    return "/today" if value == "/today" else "/"
+
+
+@app.middleware("http")
+async def require_crawler_admin(request: Request, call_next):
+    if request.url.path == "/login":
+        return await call_next(request)
+    session = request.cookies.get(SESSION_COOKIE, "")
+    if not await run_in_threadpool(verify_admin_session, session):
+        if request.url.path == "/status" or "application/json" in request.headers.get("accept", ""):
+            return JSONResponse({"error": "请先以管理员登录"}, status_code=401, headers={"Cache-Control": "no-store"})
+        next_path = safe_next_path(request.url.path)
+        return RedirectResponse(f"/login?next={quote(next_path, safe='')}", status_code=303)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next: str = "/"):
+    next_path = safe_next_path(next)
+    if await run_in_threadpool(verify_admin_session, request.cookies.get(SESSION_COOKIE, "")):
+        return RedirectResponse(next_path, status_code=303)
+    response = templates.TemplateResponse(request, "login.html", {
+        "request": request, "next_path": next_path, "error": "",
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def submit_login(request: Request):
+    form = await request.form()
+    next_path = safe_next_path(str(form.get("next", "/")))
+    account = str(form.get("account", "")).strip()
+    password = str(form.get("password", ""))
+    session = None
+    error = "账号或密码不正确"
+    status_code = 401
+    if account == ADMIN_ACCOUNT and password:
+        try:
+            session = await run_in_threadpool(login_admin, password)
+        except AuthenticationUnavailable:
+            error = "晨玙网站认证服务暂不可用，请稍后再试"
+            status_code = 503
+    if session:
+        response = RedirectResponse(next_path, status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE, session, httponly=True,
+            secure=request.url.scheme == "https", samesite="lax", path="/",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    response = templates.TemplateResponse(request, "login.html", {
+        "request": request, "next_path": next_path, "error": error,
+    }, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def is_automated_access_restriction(reason: str) -> bool:

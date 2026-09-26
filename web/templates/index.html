@@ -21,7 +21,10 @@
     .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; line-height: 1; }
     .brand-copy h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
     .brand-copy small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; line-height: 1.3; }
-    .hero-actions { display: flex; align-items: center; margin-left: auto; }
+    .hero-actions { display: flex; align-items: center; gap: 9px; margin-left: auto; }
+    .logout-form { margin: 0; }
+    .logout-button { padding: 7px 4px; border: 0; background: transparent; color: #7b8491; cursor: pointer; font-size: 12px; white-space: nowrap; }
+    .logout-button:hover { color: #2563eb; }
     .view-nav { display: flex; align-items: stretch; gap: 4px; }
     .view-nav a { display: flex; align-items: center; padding: 0 14px; border-bottom: 2px solid transparent; color: #647081; text-decoration: none; font-size: 13px; white-space: nowrap; }
     .view-nav a:hover { color: #2563eb; }
@@ -198,7 +201,7 @@
       .card-footer { padding-top: 3px; }
       .live-note { margin-top: 4px; }
     }
-    @media(max-width:640px) { .hero-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 10px; } .brand { min-width: 0; padding: 12px 0; } .brand-mark { width: 32px; height: 32px; font-size: 19px; } .brand-copy h1 { font-size: 14px; } .hero-actions { grid-column: 2; grid-row: 1; } .hero-actions .primary { padding: 8px 10px; white-space: nowrap; font-size: 12px; } .view-nav { grid-column: 1 / -1; grid-row: 2; border-top: 1px solid #edf0f4; } .view-nav a { min-height: 42px; justify-content: center; flex: 1; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
+    @media(max-width:640px) { .hero-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 7px; } .brand-copy { min-width: 0; } .brand-copy h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .hero-actions { gap: 4px; } .brand { min-width: 0; padding: 12px 0; } .brand-mark { width: 32px; height: 32px; font-size: 19px; } .brand-copy h1 { font-size: 14px; } .hero-actions { grid-column: 2; grid-row: 1; } .hero-actions .primary { padding: 8px 10px; white-space: nowrap; font-size: 12px; } .view-nav { grid-column: 1 / -1; grid-row: 2; border-top: 1px solid #edf0f4; } .view-nav a { min-height: 42px; justify-content: center; flex: 1; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
   </style>
 </head>
 {% set is_today = request.url.path in ['/today', '/source/run', '/source/delete'] %}
@@ -207,7 +210,7 @@
     <div class="hero-inner">
       <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><h1>Amazon 新品榜采集</h1><small>CHENYU AI · 数据采集</small></span></a>
       <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a></nav>
-      <div class="hero-actions"><button class="primary" id="open-add-source" type="button">＋ 新增类目</button></div>
+      <div class="hero-actions"><button class="primary" id="open-add-source" type="button">＋ 新增类目</button><form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form></div>
     </div>
   </header>
 
@@ -348,6 +351,7 @@
     }
     async function sendConfig(payload) {
       const response = await fetch('/config', {method:'POST', headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}, body:payload});
+      if (response.status === 401) { window.location.assign('/login?next=' + encodeURIComponent(location.pathname)); throw new Error('请重新登录'); }
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || '配置保存失败');
     }
@@ -416,6 +420,7 @@
       refreshing = true;
       try {
         const response = await fetch('/status', {cache:'no-store'});
+        if (response.status === 401) { window.location.assign('/login?next=' + encodeURIComponent(location.pathname)); return; }
         if (!response.ok) throw new Error('状态更新失败');
         const data = await response.json();
         data.sources.forEach(updateCard); filterCards();
@@ -467,6 +472,7 @@
       const feedback = document.querySelector('#card-feedback'); feedback.hidden=false;
       try {
         const response = await fetch('/source/run', {method:'POST',headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({source_id:button.value})});
+        if (response.status === 401) { window.location.assign('/login?next=' + encodeURIComponent(location.pathname)); return; }
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '提交失败');
         feedback.textContent = '已加入该类目的采集队列，其他类目的状态保持独立。';

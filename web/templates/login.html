@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理员登录 · Amazon 新品榜采集</title>
+  <style>
+    :root { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: #26313e; background: #f6f7f9; }
+    * { box-sizing: border-box; }
+    body { min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: min(100%, 400px); padding: 30px; background: #fff; border: 1px solid #e3e7ec; border-radius: 10px; }
+    .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 28px; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; }
+    .brand strong { display: block; font-size: 15px; }
+    .brand small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; }
+    h1 { margin: 0; font-size: 21px; font-weight: 600; }
+    .hint { margin: 6px 0 23px; color: #7b8491; font-size: 13px; }
+    label { display: block; margin: 16px 0 6px; color: #566276; font-size: 12px; }
+    input { display: block; width: 100%; height: 42px; padding: 0 11px; border: 1px solid #dce2e9; border-radius: 6px; outline: none; background: #fff; color: #26313e; font: inherit; }
+    input[readonly] { color: #647081; background: #f8fafc; }
+    input:focus { border-color: #6a97f1; box-shadow: 0 0 0 2px #edf3ff; }
+    button { width: 100%; height: 42px; margin-top: 24px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .error { margin: 14px 0 0; padding: 9px 11px; border-radius: 6px; background: #fff0ee; color: #b42318; font-size: 12px; }
+    .footer { margin: 18px 0 0; color: #98a2b3; font-size: 11px; text-align: center; }
+    @media(max-width:480px) { .login-card { padding: 24px 20px; } }
+  </style>
+</head>
+<body>
+  <main class="login-card">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span><strong>Amazon 新品榜采集</strong><small>CHENYU AI · 数据采集</small></span></div>
+    <h1>管理员登录</h1>
+    <p class="hint">使用晨玙网站的管理员密码继续。</p>
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <label for="account">账号</label>
+      <input id="account" name="account" value="admin" autocomplete="username" readonly required>
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+      {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+      <button type="submit">登录采集站点</button>
+    </form>
+    <p class="footer">仅管理员可以查看数据和操作采集任务</p>
+  </main>
+</body>
+</html>
