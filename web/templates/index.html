@@ -16,16 +16,16 @@
     button, input, select { font: inherit; }
     .hero { position: sticky; top: 0; z-index: 5; color: #26313e; background: #fff; border-bottom: 1px solid #e3e7ec; }
     .hero-inner, main { width: calc(100% - clamp(24px, 3vw, 64px)); margin: auto; }
-    .hero-inner { padding: 14px 0; display: grid; grid-template-columns: minmax(250px,1fr) auto minmax(250px,1fr); gap: 24px; align-items: center; }
-    .eyebrow { margin: 0 0 3px; color: #2563eb; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
-    h1 { margin: 0; font-size: 20px; font-weight: 600; }
-    .hero p { margin: 3px 0 0; color: #7b8491; font-size: 12px; }
-    .hero-badge { border: 1px solid #e3e7ec; border-radius: 5px; padding: 6px 10px; color: #647081; background: #fff; white-space: nowrap; font-size: 12px; }
-    .hero-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
-    .view-nav { display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid #e3e7ec; border-radius: 7px; background: #f6f7f9; }
-    .view-nav a { padding: 7px 15px; border-radius: 5px; color: #647081; text-decoration: none; font-size: 13px; white-space: nowrap; }
+    .hero-inner { min-height: 72px; display: flex; align-items: stretch; gap: 28px; }
+    .brand { display: flex; align-items: center; gap: 11px; min-width: 250px; color: inherit; text-decoration: none; }
+    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; line-height: 1; }
+    .brand-copy h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
+    .brand-copy small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; line-height: 1.3; }
+    .hero-actions { display: flex; align-items: center; margin-left: auto; }
+    .view-nav { display: flex; align-items: stretch; gap: 4px; }
+    .view-nav a { display: flex; align-items: center; padding: 0 14px; border-bottom: 2px solid transparent; color: #647081; text-decoration: none; font-size: 13px; white-space: nowrap; }
     .view-nav a:hover { color: #2563eb; }
-    .view-nav a.active { color: #2563eb; background: #fff; box-shadow: 0 1px 3px #26313e12; font-weight: 600; }
+    .view-nav a.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
     body[data-view="overview"] .today-view, body[data-view="today"] .overview-view { display: none; }
     main { margin-top: 20px; padding-bottom: 32px; }
     .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
@@ -110,8 +110,7 @@
     @media (max-width: 820px) {
       .stats { grid-template-columns: repeat(2, 1fr); }
       .grid { grid-template-columns: 1fr; }
-      .hero-inner { padding-top: 16px; }
-      .hero-badge { display: none; }
+
       .add-grid { grid-template-columns: 1fr; }
       .source-tools input { width: 100%; }
     }
@@ -157,21 +156,17 @@
       .today-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
       .source-grid { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px; scrollbar-gutter: stable; }
     }
-    @media(max-width:1100px) { .hero-inner { grid-template-columns: 1fr auto; } .view-nav { grid-column: 1 / -1; grid-row: 2; width: max-content; } .panel-head { flex-wrap:wrap; } }
-    @media(max-width:640px) { h1 { font-size: 16px; } .hero p:not(.eyebrow) { display: none; } .hero-inner { gap: 12px; } .hero-badge { display: none; } .hero-actions .primary { padding: 9px 11px; white-space: nowrap; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
+    @media(max-width:1100px) { .brand { min-width: 210px; } .hero-inner { gap: 16px; } .panel-head { flex-wrap:wrap; } }
+    @media(max-width:640px) { .hero-inner { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 10px; } .brand { min-width: 0; padding: 12px 0; } .brand-mark { width: 32px; height: 32px; font-size: 19px; } .brand-copy h1 { font-size: 14px; } .hero-actions { grid-column: 2; grid-row: 1; } .hero-actions .primary { padding: 8px 10px; white-space: nowrap; font-size: 12px; } .view-nav { grid-column: 1 / -1; grid-row: 2; border-top: 1px solid #edf0f4; } .view-nav a { min-height: 42px; justify-content: center; flex: 1; } .add-dialog .add-grid { grid-template-columns: 1fr; } .add-dialog .add-grid .field:last-child { grid-column: auto; } .source-grid {grid-template-columns:1fr;} .panel-head {flex-wrap:wrap;} .source-tools {width:100%;justify-content:flex-start;} .source-tools input {width:100%;} .source-card {padding:14px;} .panel {padding:14px;} .state-meta {overflow-wrap:anywhere;} .chart {gap:8px;} }
   </style>
 </head>
 {% set is_today = request.url.path in ['/today', '/source/run', '/source/delete'] %}
 <body data-view="{{ 'today' if is_today else 'overview' }}">
   <header class="hero">
     <div class="hero-inner">
-      <div>
-        <p class="eyebrow">CHENYU AI · 数据采集</p>
-        <h1>Amazon 新品榜采集器</h1>
-        <p>管理每日采集计划、数据源和最近 7 天快照。</p>
-      </div>
+      <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><h1>Amazon 新品榜采集</h1><small>CHENYU AI · 数据采集</small></span></a>
       <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a></nav>
-      <div class="hero-actions"><span class="hero-badge">Asia/Shanghai · 每日一次</span><button class="primary" id="open-add-source" type="button">＋ 新增类目</button></div>
+      <div class="hero-actions"><button class="primary" id="open-add-source" type="button">＋ 新增类目</button></div>
     </div>
   </header>
 
