@@ -241,6 +241,32 @@ def _next_page_url(page: Any) -> str:
     return ""
 
 
+def _click_next_page(page: Any, next_url: str, settings: BrowserSettings) -> Any:
+    """Click the real pagination link, preferring its numbered button."""
+    links = page.locator(".a-pagination a, li.a-last:not(.a-disabled) a, a[aria-label='Next page']")
+    candidates = []
+    for index in range(links.count()):
+        link = links.nth(index)
+        if urljoin(page.url, link.get_attribute("href") or "") == next_url and link.is_visible():
+            candidates.append(link)
+    if not candidates:
+        raise ParseError(f"PAGINATION_LINK_MISSING: 页面没有可点击的下一页链接; URL={next_url}")
+    link = next((item for item in candidates if (item.inner_text() or "").strip().isdigit()), candidates[0])
+    # Scroll the ordinary page until pagination is in view.
+    for _ in range(40):
+        box = link.bounding_box()
+        height = page.evaluate("window.innerHeight")
+        if box and 0 <= box['y'] and box['y'] + box['height'] <= height:
+            break
+        page.mouse.wheel(0, 850 if not box or box['y'] > 0 else -850)
+        page.wait_for_timeout(settings.scroll_pause_ms)
+    link.scroll_into_view_if_needed(timeout=settings.timeout_ms)
+    print(f"点击分页按钮 {link.inner_text().strip()}: {next_url}", flush=True)
+    with page.expect_navigation(wait_until="domcontentloaded", timeout=settings.timeout_ms) as navigation:
+        link.click(timeout=settings.timeout_ms)
+    return navigation.value
+
+
 def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次打开", page_number: int = 1) -> None:
     status_code = response.status if response is not None else 0
     body_text = page.locator("body").inner_text(timeout=15_000)
@@ -450,7 +476,7 @@ def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings
             print(f"{source['marketplace']}/{source['category']}: 页面加载稳定，额外等待 {settings.between_pages_seconds:g} 秒后访问第 {pages_visited + 1} 页", flush=True)
             page.wait_for_timeout(settings.between_pages_seconds * 1000)
             _check_page_access(page, response, stage="翻页前等待后", page_number=pages_visited)
-        response = page.goto(next_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
+        response = _click_next_page(page, next_url, settings)
         page.wait_for_timeout(600)
         _check_page_access(page, response, stage="翻页后", page_number=pages_visited + 1)
     items = deduplicate_items(extracted, limit)
