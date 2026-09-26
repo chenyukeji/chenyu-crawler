@@ -16,6 +16,38 @@ from database.repository import SnapshotStore
 from scheduler_loop import claim_daily_run
 
 
+class PublicRestrictionMessageTests(unittest.TestCase):
+    def test_existing_raw_site_notice_is_reported_as_automation_restriction(self):
+        from api.main import public_error_message, today_source_cards
+        raw = ('ACCESS_BLOCKED: AGENT_RESTRICTED; Amazon 访问受限 (unauthorized ai agent); '
+               '阶段=翻页后; 第2页; HTTP=200; URL=https://www.amazon.com/gp/new-releases/beauty; '
+               '已尝试 1 次；保留此前有效结果 50 条；证据=/tmp/access-evidence')
+        public = public_error_message(raw)
+        self.assertIn('自动化访问受限', public)
+        self.assertIn('第2页', public)
+        self.assertIn('HTTP=200', public)
+        self.assertIn('50 条', public)
+        self.assertIn('/tmp/access-evidence', public)
+        self.assertNotIn('AI agent', public)
+        with tempfile.TemporaryDirectory() as directory:
+            store = SnapshotStore(Path(directory) / 'test.db')
+            source = {'marketplace':'US', 'category':'beauty',
+                      'url':'https://www.amazon.com/gp/new-releases/beauty', 'enabled':True}
+            when = datetime(2026, 9, 26, 12, tzinfo=timezone(timedelta(hours=8)))
+            rid = store.start_run(source_url=source['url'], marketplace='US', category='beauty',
+                                  snapshot_date='2026-09-26', started_at=when.isoformat())
+            store.finish_run(rid,status='BLOCKED',item_count=50,error_message=raw,now=when)
+            with patch('api.main.connect_database',side_effect=store.connect):
+                card = today_source_cards({'sources':[source], 'collection_policy':{'max_items_per_source':100},
+                                           'daily_schedule':'06:00'},now=when)[0]
+            self.assertEqual(card['status_label'], '自动化访问受限')
+            self.assertEqual(card['reason'], public)
+
+    def test_other_error_remains_unchanged(self):
+        from api.main import public_error_message
+        self.assertEqual(public_error_message('HTTP_ERROR: 500'), 'HTTP_ERROR: 500')
+
+
 class ConfigurationTests(unittest.TestCase):
     def test_only_configuration_page_is_registered(self) -> None:
         paths = {getattr(route, "path", "") for route in app.routes}

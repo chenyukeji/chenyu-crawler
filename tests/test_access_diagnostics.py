@@ -44,6 +44,10 @@ class AccessDiagnosticsTests(unittest.TestCase):
         with self.assertRaises(AccessControlBlocked) as caught:
             _check_page_access(page, MagicMock(status=429, headers={}))
         self.assertEqual(caught.exception.diagnostics['kind'], 'AGENT_RESTRICTED')
+        self.assertIn('AUTOMATED_ACCESS_RESTRICTED', str(caught.exception))
+        self.assertIn('自动化访问受限', str(caught.exception))
+        self.assertNotIn('unauthorized ai agent', str(caught.exception).casefold())
+        self.assertIn('unauthorized ai agent', caught.exception.diagnostics['site_notice'].casefold())
 
     def test_second_page_block_keeps_first_page_and_records_stage_offline(self):
         # Every network request is fulfilled locally: this test never contacts Amazon.

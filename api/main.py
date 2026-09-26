@@ -43,6 +43,35 @@ app = FastAPI(
 templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 
 
+def is_automated_access_restriction(reason: str) -> bool:
+    lowered = reason.casefold()
+    return any(marker in lowered for marker in (
+        "unauthorized ai agent", "agent_restricted", "automated_access_restricted"
+    ))
+
+
+def public_error_message(reason: str) -> str:
+    """Summarize old and new restriction errors without claiming an AI model was detected."""
+    if not is_automated_access_restriction(reason):
+        return reason
+    details = []
+    for pattern in (r"阶段=([^;]+)", r"第(\d+)页", r"HTTP=(\d+)", r"保留此前有效结果 (\d+) 条"):
+        match = re.search(pattern, reason)
+        if match:
+            value = match.group(1)
+            if pattern.startswith("第"):
+                value = f"第{value}页"
+            elif pattern.startswith("HTTP"):
+                value = f"HTTP={value}"
+            elif pattern.startswith("保留"):
+                value = f"保留本次有效结果 {value} 条"
+            details.append(value)
+    evidence = re.search(r"证据=([^\s;]+)", reason)
+    if evidence:
+        details.append(f"诊断={evidence.group(1)}")
+    return "自动化访问受限：Amazon 返回限制页，未提供该页商品；具体识别信号未知。" + ("；".join(details) if details else "")
+
+
 def scheduler_state() -> dict[str, str]:
     with closing(connect_database()) as connection:
         latest = connection.execute(
@@ -83,7 +112,9 @@ def scheduler_state() -> dict[str, str]:
     details = []
     for row in rows:
         retry = f"；下次补抓 {row[8]}" if row[8] else ""
-        details.append(f"{row[5]}/{row[6]}: {row[3] or ''} [{labels.get(row[1], row[1])}，{row[2]} 条，补抓轮次 {row[7]}/2{retry}]")
+        run_reason = public_error_message(str(row[3] or "")) if row[1] == "BLOCKED" else str(row[3] or "")
+        run_label = "自动化访问受限" if row[1] == "BLOCKED" and is_automated_access_restriction(str(row[3] or "")) else labels.get(row[1], row[1])
+        details.append(f"{row[5]}/{row[6]}: {run_reason} [{run_label}，{row[2]} 条，补抓轮次 {row[7]}/2{retry}]")
     completed = sum(1 for row in rows if str(row[1]) == "COMPLETE")
     message = f"完整 {completed}/{len(rows)} 个数据源，最近结果共采集 {sum(int(row[2]) for row in rows)} 条。"
     message += "\n" + "\n".join(details)
@@ -165,6 +196,9 @@ def today_source_cards(config, now=None):
         status = row.get("status", "WAITING") if source["enabled"] else "DISABLED"
         label, css = CARD_STATES[status]
         reason = row.get("error_message") or ""
+        if status == "BLOCKED" and is_automated_access_restriction(reason):
+            label = "自动化访问受限"
+            reason = public_error_message(reason)
         if status == "QUEUED": reason = "已加入队列，轮到此类目时开始采集。"
         elif status == "WAITING": reason = f"今日尚未采集，计划 {config['daily_schedule']} 开始。"
         elif status == "DISABLED": reason = "已停用自动采集，启用并保存后可采集。"

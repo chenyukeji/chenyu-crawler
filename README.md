@@ -185,3 +185,7 @@ Linux 服务使用操作系统 `flock` 锁，锁文件存在本身不表示任�
 environment.json 额外记录进程的平台、Python 版本、是否来自 systemd，以及代理环境变量是否存在。只记录变量名，不保存代理地址、密码或 NO_PROXY 列表。环境变量存在不代表 Chromium 实际使用了代理，effective_network_route 保持 not_measured。
 
 正常页面、限制页及逐请求诊断统一保留允许列表内的响应头，包括 x-amz-rid、x-amzn-requestid、x-amz-cf-id，便于按时间与请求编号核查。不会记录 Set-Cookie 或 Authorization。此改动增强定位证据，不表示已解除 Amazon 访问限制。
+
+## 自动化访问受限的文案
+
+当 Amazon 限制页使用 `unauthorized AI agent` 字样时，系统将它记为“自动化访问受限”，不声称站点识别到了某个 AI 模型。旧任务的原始错误仍保留在数据库作审计；界面会将旧记录转换为相同的准确表述，并保留页码、HTTP 状态和诊断目录。新任务的诊断 JSON 中保留站点原文及允许列表中的请求编号，HTML 证据也不改写。具体识别信号仍未知。

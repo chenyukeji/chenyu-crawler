@@ -289,10 +289,22 @@ def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次�
         diagnostic = {"kind": kind, "stage": stage, "page_number": page_number,
                       "http_status": status_code, "url": page.url,
                       "marker": blocker, "response_headers": safe_headers, "action": action}
+        if kind == "AGENT_RESTRICTED":
+            # This is the site's wording, not evidence that it identified an AI model.
+            # Keep the original notice in diagnostics and saved HTML, while describing
+            # the observable result accurately in the run error shown to users.
+            diagnostic["site_notice"] = body_text[:350]
+            public_kind = "AUTOMATED_ACCESS_RESTRICTED"
+            public_label = "Amazon 自动化访问受限"
+            page_excerpt = "站点返回限制页，未提供商品；具体识别信号未知"
+        else:
+            public_kind = kind
+            public_label = f"Amazon 访问受限 ({blocker or status_code})"
+            page_excerpt = body_text[:350]
         raise AccessControlBlocked(
-            f"ACCESS_BLOCKED: {kind}; Amazon 访问受限 ({blocker or status_code}); "
+            f"ACCESS_BLOCKED: {public_kind}; {public_label}; "
             f"阶段={stage}; 第{page_number}页; HTTP={status_code}; URL={page.url}; "
-            f"处理建议={action}; 页面={body_text[:350]}", diagnostics=diagnostic)
+            f"处理建议={action}; 页面={page_excerpt}", diagnostics=diagnostic)
     if status_code >= 400:
         raise RuntimeError(f"HTTP_ERROR: HTTP {status_code}; URL={page.url}; 页面={body_text[:350]}")
 
