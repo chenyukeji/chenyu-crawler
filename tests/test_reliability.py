@@ -173,6 +173,38 @@ with CollectorLock(p/'collector.lock'):
             self.assertEqual(tuple(row), ('BLOCKED', 1, None))
             self.assertEqual(c.execute('SELECT rank FROM observations').fetchone()[0], 51)
 
+    def test_runner_attempts_each_category_after_another_is_restricted(self):
+        from crawler.amazon import AccessControlBlocked
+        first_us = dict(self.source, marketplace='US', category='baby-products', url='https://www.amazon.com/gp/new-releases/baby-products')
+        second_us = dict(self.source, marketplace='US', category='fashion', url='https://www.amazon.com/gp/new-releases/fashion')
+        de = dict(self.source, marketplace='DE', category='baby', url='https://www.amazon.de/gp/new-releases/baby')
+        config = self.root / 'sources.json'
+        config.write_text(json.dumps({'sources': [first_us, second_us, de], 'daily_schedule': '06:00'}))
+        blocked = AccessControlBlocked(
+            'ACCESS_BLOCKED: AGENT_RESTRICTED',
+            diagnostics={'kind': 'AGENT_RESTRICTED'},
+        )
+        snap = {
+            'status': 'ok', 'items': [], 'error_message': '', 'top_list_complete': True,
+            'pages_visited': 1, 'attempts': [], 'page_diagnostics': [],
+        }
+        args = ['--config', str(config), '--db', str(self.store.path), '--date', '2026-09-24']
+        with patch('run_daily.ROOT', self.root), patch('playwright.sync_api.sync_playwright'), \
+             patch('run_daily.collect_with_retry', side_effect=[blocked, snap, snap]) as collect, \
+             redirect_stdout(io.StringIO()):
+            self.assertEqual(run_daily.main(args), 2)
+        self.assertEqual(collect.call_count, 3)
+        with closing(self.store.connect()) as c:
+            rows = c.execute(
+                'SELECT marketplace,category,status,error_message FROM collection_runs ORDER BY rowid'
+            ).fetchall()
+        self.assertEqual([tuple(row[:3]) for row in rows], [
+            ('US', 'baby-products', 'BLOCKED'),
+            ('US', 'fashion', 'COMPLETE'),
+            ('DE', 'baby', 'COMPLETE'),
+        ])
+        self.assertIsNone(rows[1]['error_message'])
+
     def test_runner_delayed_retry_filters_sources_and_persists_next_round(self):
         self.start()
         config=self.root/'sources.json';config.write_text(json.dumps({'sources':[self.source],'daily_schedule':'06:00'}))

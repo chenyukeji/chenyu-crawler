@@ -141,6 +141,7 @@ def execute_collection(args, sources, settings, limit, store, previous, Playwrig
     started_at = now_shanghai().isoformat(timespec="microseconds")
     run_ids: dict[str, str] = {}
     finished_run_ids: set[str] = set()
+    browsers = []
 
     try:
         store.prune(date.fromisoformat(args.date))
@@ -163,19 +164,30 @@ def execute_collection(args, sources, settings, limit, store, previous, Playwrig
             if settings.channel != "chromium":
                 launch_options["channel"] = settings.channel
 
-            browser = playwright.chromium.launch(**launch_options)
-            context = browser.new_context(locale="en-US", timezone_id="Asia/Shanghai")
-            page = context.new_page()
-            page.set_default_timeout(settings.timeout_ms)
-
             for index, source in enumerate(sources):
                 current_source_id = source_id(source)
-
                 if not store.mark_running(run_ids[current_source_id]):
                     continue
 
+                source_browsers = []
+
+                def open_next_page():
+                    # A fresh process also isolates the network/session state
+                    # after a fully loaded rank page; a new tab alone did not.
+                    new_browser = playwright.chromium.launch(**launch_options)
+                    browsers.append(new_browser)
+                    source_browsers.append(new_browser)
+                    new_context = new_browser.new_context(locale="en-US", timezone_id="Asia/Shanghai")
+                    new_page = new_context.new_page()
+                    new_page.set_default_timeout(settings.timeout_ms)
+                    return new_page
+
+                page = open_next_page()
                 try:
-                    snapshot = collect_with_retry(page, source, settings, limit, evidence_root / current_source_id)
+                    snapshot = collect_with_retry(
+                        page, source, settings, limit, evidence_root / current_source_id,
+                        open_next_page=open_next_page,
+                    )
                     snapshot["snapshot_date"] = args.date
 
                     changed = store.ingest(
@@ -252,12 +264,18 @@ def execute_collection(args, sources, settings, limit, store, previous, Playwrig
                         }
                     )
 
+                for source_browser in source_browsers:
+                    source_browser.close()
+
                 if index + 1 < len(sources):
                     time.sleep(settings.between_sources_seconds)
 
-            context.close()
-            browser.close()
     except BaseException as exc:
+        for open_browser in browsers:
+            try:
+                open_browser.close()
+            except Exception:
+                pass
         for run_id in run_ids.values():
             with closing(store.connect()) as c:
                 active = c.execute("SELECT status FROM collection_runs WHERE run_id=?", (run_id,)).fetchone()

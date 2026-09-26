@@ -68,6 +68,50 @@ class PageResumeTests(unittest.TestCase):
         self.assertGreater(int(self.page.evaluate("sessionStorage.getItem('scroll')")), 0)
         self.assertTrue(self.page.url.endswith('?pg=2'))
 
+    def test_second_page_uses_independent_page_and_real_rank(self):
+        context = self.browser.new_context()
+        self.addCleanup(context.close)
+        self.page = context.new_page()
+        visits = []
+
+        def respond(route):
+            if route.request.resource_type != 'document':
+                route.abort()
+                return
+            is_second = '?pg=2' in route.request.url
+            visits.append((route.request.frame.page, is_second))
+            start = 51 if is_second else 1
+            cards = ''.join(
+                f'<div class="zg-grid-general-faceout"><span class="zg-bdg-text">#{rank}</span>'
+                f'<a href="/dp/B{rank:09d}">Product {rank}</a>'
+                f'<img alt="Product {rank}" src="https://example.test/{rank}.png"></div>'
+                for rank in range(start, start + 50)
+            )
+            next_link = '' if is_second else '<ul class="a-pagination"><li><a href="?pg=2">2</a></li><li class="a-last"><a href="?pg=2">Next</a></li></ul>'
+            route.fulfill(status=200, content_type='text/html', body=cards + next_link)
+
+        self.page.context.route('**/*', respond)
+        opened = []
+
+        def open_next_page():
+            new_page = self.page.context.new_page()
+            opened.append(new_page)
+            return new_page
+
+        with patch('crawler.retry.time.sleep'):
+            result = collect_with_retry(
+                self.page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                self.path, open_next_page=open_next_page,
+            )
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual([item['rank'] for item in result['items']], list(range(1, 101)))
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(self.page.url, self.source['url'])
+        self.assertTrue(opened[0].url.endswith('?pg=2'))
+        self.assertEqual([page for page, second in visits if second], [opened[0]])
+        for page in opened:
+            page.close()
+
     def test_timeout_retries_only_second_page(self):
         self.install_pages('timeout')
         result = self.collect()

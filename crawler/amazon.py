@@ -310,10 +310,19 @@ def _check_page_access(page: Any, response: Any = None, *, stage: str = "首次�
 
 
 
-def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None) -> dict[str, Any]:
+def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None, open_next_page: Any = None, on_active_page: Any = None) -> dict[str, Any]:
     retry_state = resume_from or {"url": source["url"], "items": [], "page_diagnostics": [], "visited_page_urls": [], "pages_visited": 0}
     checkpoint = (_build_snapshot(source, retry_state["items"], limit, retry_state["page_diagnostics"], retry_state["pages_visited"], "正在恢复失败页")
                   if retry_state["items"] else None)
+    active_page = page
+
+    def switch_page():
+        nonlocal active_page
+        active_page = open_next_page()
+        active_page.set_default_timeout(settings.timeout_ms)
+        if on_active_page:
+            on_active_page(active_page)
+        return active_page
 
     def remember_cursor(state):
         nonlocal retry_state
@@ -326,20 +335,20 @@ def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings,
             on_checkpoint(snapshot)
 
     try:
-        return _collect_source(page, source, settings, limit, on_checkpoint=remember, resume_from=retry_state, on_cursor=remember_cursor)
+        return _collect_source(page, source, settings, limit, on_checkpoint=remember, resume_from=retry_state, on_cursor=remember_cursor, open_next_page=switch_page if open_next_page else None)
     except AccessControlBlocked as exc:
         # A restriction can be embedded in a partly rendered product page.
         # Read only the DOM already returned: no scrolling, clicking or requests.
         retained = list(retry_state.get("items", []))
         candidates = list(retained)
         try:
-            cards = page.locator("div.zg-grid-general-faceout")
+            cards = active_page.locator("div.zg-grid-general-faceout")
             if cards.count() == 0:
-                cards = page.locator("div.p13n-sc-uncoverable-faceout")
+                cards = active_page.locator("div.p13n-sc-uncoverable-faceout")
             rejected = 0
             for index in range(cards.count()):
                 try:
-                    item = _extract_card(cards.nth(index), page.url)
+                    item = _extract_card(cards.nth(index), active_page.url)
                     if item and item["image_url"]:
                         candidates.append(item)
                     else:
@@ -349,7 +358,7 @@ def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings,
             items = deduplicate_items(candidates, limit)
             if len(items) > len(retained):
                 diagnostics = list(retry_state.get("page_diagnostics", []))
-                diagnostics.append({"url": page.url, "http_status": exc.diagnostics.get("http_status"),
+                diagnostics.append({"url": active_page.url, "http_status": exc.diagnostics.get("http_status"),
                                     "cards": cards.count(), "rejected_cards": rejected,
                                     "new_unique_items": len(items) - len(retained),
                                     "access_blocked": True, "load_stable": False})
@@ -395,7 +404,7 @@ def _wait_for_page_settle(page: Any, *, max_polls: int = 60) -> dict:
     return {"settled": False, "ready_state": last_state.get('ready'), "waited_ms": (max_polls - 1) * 500}
 
 
-def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None, on_cursor: Any = None) -> dict[str, Any]:
+def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings, limit: int, *, on_checkpoint: Any = None, resume_from: dict | None = None, on_cursor: Any = None, open_next_page: Any = None) -> dict[str, Any]:
     state = resume_from or {"url": source["url"], "items": [], "page_diagnostics": [], "visited_page_urls": [], "pages_visited": 0}
     extracted = list(state["items"])
     visited_page_urls = set(state["visited_page_urls"])
@@ -488,7 +497,13 @@ def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings
             print(f"{source['marketplace']}/{source['category']}: 页面加载稳定，额外等待 {settings.between_pages_seconds:g} 秒后访问第 {pages_visited + 1} 页", flush=True)
             page.wait_for_timeout(settings.between_pages_seconds * 1000)
             _check_page_access(page, response, stage="翻页前等待后", page_number=pages_visited)
-        response = _click_next_page(page, next_url, settings)
+        if open_next_page:
+            # Follow the page's real pagination URL in an independent page.
+            # The runner opens it in a fresh browser process.
+            page = open_next_page()
+            response = page.goto(next_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
+        else:
+            response = _click_next_page(page, next_url, settings)
         page.wait_for_timeout(600)
         _check_page_access(page, response, stage="翻页后", page_number=pages_visited + 1)
     items = deduplicate_items(extracted, limit)

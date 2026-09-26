@@ -67,7 +67,7 @@ class CardQueueTests(unittest.TestCase):
 
     def test_blocked_category_does_not_skip_next_category(self):
         seen=[]
-        def collect(page,source,*args):
+        def collect(page,source,*args,**kwargs):
             with closing(self.store.connect()) as c:
                 seen.append([tuple(r) for r in c.execute('SELECT category,status FROM collection_runs ORDER BY category')])
             if source['category']=='fashion':raise AccessControlBlocked('ACCESS_BLOCKED: test')

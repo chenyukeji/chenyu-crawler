@@ -13,12 +13,16 @@ from crawler.amazon import AccessControlBlocked, BrowserSettings, ParseError, Pa
 
 
 def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit: int,
-                       evidence_dir: Path, max_attempts: int = 3) -> dict:
+                       evidence_dir: Path, max_attempts: int = 3, open_next_page: Any = None) -> dict:
     """Retry transient failures; never retry an explicit access restriction."""
     evidence_dir.mkdir(parents=True, exist_ok=True)
     history = []
     best = None
     resume_from = None
+    active_page = [page]
+
+    def track_page(new_page):
+        active_page[0] = new_page
 
     def retain(snapshot):
         nonlocal best
@@ -47,10 +51,15 @@ def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit
         started_at = datetime.now(timezone.utc).isoformat()
         started = time.monotonic()
         try:
+            if attempt > 1 and open_next_page:
+                track_page(open_next_page())
+                active_page[0].set_default_timeout(settings.timeout_ms)
             options = {"on_checkpoint": retain}
+            if open_next_page:
+                options.update(open_next_page=open_next_page, on_active_page=track_page)
             if resume_from is not None:
                 options["resume_from"] = resume_from
-            snapshot = collect_source(page, source, settings, limit, **options)
+            snapshot = collect_source(active_page[0], source, settings, limit, **options)
             retain(snapshot)
             reason = snapshot.get('error_message', '')
             status = snapshot['status']
@@ -76,9 +85,9 @@ def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit
             entry['access'] = access
         if status != 'ok':
             try:
-                (evidence_dir / f'attempt-{attempt}.html').write_text(page.content(), encoding='utf-8')
-                entry['url'] = page.url
-                entry['title'] = page.title()
+                (evidence_dir / f'attempt-{attempt}.html').write_text(active_page[0].content(), encoding='utf-8')
+                entry['url'] = active_page[0].url
+                entry['title'] = active_page[0].title()
             except Exception as exc:
                 entry['evidence_error'] = str(exc)
         history.append(entry)
