@@ -1,4 +1,6 @@
 env/.venv/
+.venv/
+.venv-auto/
 .env
 .env.*
 *.db
@@ -9,3 +11,9 @@ __pycache__/
 .pytest_cache/
 
 data/diagnostics*/
+*.sqlite3
+*.sqlite3-*
+data/sellersprite-profile/
+data/browser-profile/
+outputs/seller-vat/
+tmp*/

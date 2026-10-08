@@ -1,5 +1,7 @@
 # Amazon New Releases Collector
 
+新增意大利站卖家税号采集入口：卖家精灵「选产品」意大利站、商品上架时间近30天 → BuyBox店铺链接 → 页面公开VAT。运行 `python run_seller_vat.py login` 登录后，运行 `python run_seller_vat.py run`。独立保存数据库与来源记录，支持店铺去重、税号续跑、价格分区及完整性核对，使用说明见 [SELLER_VAT.md](SELLER_VAT.md)。
+
 一个精简的 Amazon 新品榜采集器：每天自动采集一次，将最近 7 天快照保存在 SQLite，并通过一个网页配置运行时间和数据源。
 
 ## 结构
