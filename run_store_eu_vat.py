@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from crawler.seller_vat import ROOT, TZ, parse_seller
+from merge_store_vat_database import merge
 
 SITES = ("it", "fr", "de", "pl", "es")
 SITE_LABELS = {"it": "意大利", "fr": "法国", "de": "德国", "pl": "波兰", "es": "西班牙"}
@@ -18,6 +19,7 @@ STATUS_LABELS = {"local_vat": "已公开本站税号", "other_vat": "仅其他�
                  "no_public_vat": "未见公开税号", "failed": "访问失败", "pending": "待核查"}
 OUTPUT = ROOT / "outputs" / "seller-vat" / f"eu-store-{datetime.now(TZ).date().isoformat()}"
 DB = ROOT / "data" / "seller_vat.sqlite3"
+STORE_DB = ROOT / "data" / "amazon_it.sqlite3"
 COLUMNS = ["卖家ID", "店铺名称", "公司名称", "公司地址", "IT税号", "FR税号", "DE税号", "PL税号", "ES税号",
            "其他税号", "意大利店铺页", "法国店铺页", "德国店铺页", "波兰店铺页", "西班牙店铺页", "核查状态", "核查时间"]
 
@@ -98,6 +100,13 @@ def export(sellers: list[str], candidates: dict, records: dict) -> Path:
     return target
 
 
+def save_results(sellers: list[str], candidates: dict, records: dict) -> Path:
+    target = export(sellers, candidates, records)
+    merged = merge(STORE_DB, OUTPUT)
+    print(f"database={STORE_DB} sellers={merged['sellers_total']} vat_evidence={merged['vat_evidence']}", flush=True)
+    return target
+
+
 async def main_async(limit_new: int, concurrency: int, skip_sites: set[str]) -> None:
     from playwright.async_api import async_playwright
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -113,7 +122,7 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str]) -> 
         pending = pending[:limit_new * len(SITES)]
     print(f"stores={len(sellers)} pending_site_checks={len(pending)}", flush=True)
     if not pending:
-        print(export(sellers, candidates, records), flush=True)
+        print(save_results(sellers, candidates, records), flush=True)
         return
     semaphore = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
@@ -159,13 +168,13 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str]) -> 
                         evidence.flush()
                         completed += 1
                         if completed % 10 == 0 or completed == len(pending):
-                            export(sellers, candidates, records)
+                            save_results(sellers, candidates, records)
                             print(f"site_checks={completed}/{len(pending)} stores_with_results={len({s for s, _ in records})}", flush=True)
                 await asyncio.gather(*(check(seller_id, site) for seller_id, site in pending))
         finally:
             await context.close()
             await browser.close()
-    print(export(sellers, candidates, records), flush=True)
+    print(save_results(sellers, candidates, records), flush=True)
 
 
 def main() -> None:

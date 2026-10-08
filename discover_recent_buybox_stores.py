@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from crawler.seller_vat import DEFAULT_URL, ROOT, SELLER, TZ, configure_research, restore_sellersprite_session, seller_url
+from merge_store_vat_database import save_discoveries
 
 PROFILE = ROOT / "data" / "sellersprite-profile"
 OUTPUT = ROOT / "outputs" / "seller-vat" / f"eu-store-{datetime.now(TZ).date().isoformat()}"
@@ -22,6 +23,7 @@ def save_candidates(candidates: dict, pages: int, reported_total: int) -> None:
     payload = {"source": "SellerSprite IT, listing date past 30 days, BuyBox seller", "pages_checked": pages,
                "reported_result_total": reported_total, "stores": sorted(candidates.values(), key=lambda x: x["seller_id"])}
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_discoveries(ROOT / "data" / "amazon_it.sqlite3", payload["stores"])
 
 
 def main() -> None:

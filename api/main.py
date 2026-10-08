@@ -28,6 +28,7 @@ from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
 from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
+from api.store_vat_view import load_store_view
 import seller_vat_login
 from seller_vat_loop import TRIGGER, profile_ready
 from crawler.seller_vat import collection_lock_held, save_json
@@ -36,6 +37,8 @@ from crawler.seller_vat import collection_lock_held, save_json
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "sources.json"
 SELLER_VAT_DB_PATH = ROOT / "data" / "seller_vat.sqlite3"
+AMAZON_IT_DB_PATH = ROOT / "data" / "amazon_it.sqlite3"
+STORE_REPORT_ROOT = ROOT / "outputs" / "seller-vat"
 SELLER_VAT_STATUS_PATH = ROOT / "data" / "seller-vat-scheduler.json"
 
 
@@ -407,12 +410,21 @@ def today(
 def seller_vat_page(
     request: Request, run_id: str = "", tab: str = "sellers",
     q: str = "", status: str = "", page: int = 1,
+    table: str = "sellers", country: str = "",
 ):
+    store_view = load_store_view(
+        AMAZON_IT_DB_PATH, STORE_REPORT_ROOT,
+        query=q, country=country, page=page, table=table,
+    )
+    if store_view is not None:
+        return templates.TemplateResponse(request, "seller_vat.html", {
+            "request": request, "store_view": store_view,
+        })
     data = load_seller_vat_page(
         SELLER_VAT_DB_PATH, run_id=run_id, tab=tab,
         query=q, status=status, page=page,
     )
-    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), "default_account": seller_vat_login.default_account(), **data})
+    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "store_view": None, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), "default_account": seller_vat_login.default_account(), **data})
 
 
 def _secure_vat_action(request: Request):

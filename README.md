@@ -25,6 +25,12 @@
 
 登录、续跑、参数及数据口径见 [税号采集使用说明](SELLER_VAT.md)。
 
+### 店铺维度数据库与网页
+
+服务器将用户提供的 `amazon_it.sqlite3` 保存在 `data/amazon_it.sqlite3`，原始副本保存在 `data/backups/amazon_it_2026-10-08_original.sqlite3`。原 `sellers` 表保留；新增 `seller_discoveries`、`seller_site_checks`、`seller_vat_evidence` 和 `vat_checks`，记录店铺发现、逐站公开信息与 VIES 核验。`discover_recent_buybox_stores.py` 在发现店铺时写入此库，`run_store_eu_vat.py` 每次导出时合并最新站点证据。合并按店铺和站点去重，已有非空公司名和税号不会被空值覆盖。
+
+管理页 `/seller-vat` 直接读取此库，可查看全部原始字段，按店铺、公司、税号搜索，按税号国家筛选，并逐表分页。新税号可运行 `.venv/bin/python check_vies_vats.py` 查询欧盟官方 VIES；只把官方返回的公司名填入 `vies_company_name`，查询结果和时间保存在 `vat_checks`。部分成员国不提供名称，因此空白不代表税号无效。
+
 ## 安装
 
 需要 Python 3.10+。首次安装或更新代码后，重新安装依赖。

@@ -72,6 +72,8 @@ class SellerVatPageTests(unittest.TestCase):
         store = self.make_store()
         store.products('2026-10-08', [{'asin': 'B000000001', 'sellerId': 'A1234567890'}], 'test')
         with patch('api.main.SELLER_VAT_DB_PATH', self.path), \
+             patch('api.main.AMAZON_IT_DB_PATH', Path(self.temp.name) / 'missing.sqlite3'), \
+             patch('api.main.STORE_REPORT_ROOT', Path(self.temp.name) / 'empty'), \
              patch('api.main.verify_admin_session', return_value=True):
             status, headers, body = asyncio.run(request_app(
                 '/seller-vat', headers={'cookie': 'chenyu_session=test'},
@@ -99,7 +101,9 @@ class SellerVatPageTests(unittest.TestCase):
             'query_string': b'', 'headers': [], 'client': ('127.0.0.1', 1),
             'server': ('127.0.0.1', 8000),
         })
-        with patch('api.main.SELLER_VAT_DB_PATH', self.path):
+        with patch('api.main.SELLER_VAT_DB_PATH', self.path), \
+             patch('api.main.AMAZON_IT_DB_PATH', Path(self.temp.name) / 'missing.sqlite3'), \
+             patch('api.main.STORE_REPORT_ROOT', Path(self.temp.name) / 'empty'):
             response = seller_vat_page(request)
         html = response.body.decode()
         self.assertEqual(response.status_code, 200)
