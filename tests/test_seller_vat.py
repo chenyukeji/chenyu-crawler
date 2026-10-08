@@ -82,6 +82,18 @@ class AutoTests(unittest.TestCase):
         self.assertEqual(auto.parse_seller('<html><body>Something went wrong</body></html>'),
                          {'company': '', 'address': '', 'vats': []})
 
+    def test_numeric_book_asin_is_not_excluded(self):
+        class Page:
+            def content(self):
+                return '<table><tbody><tr><td><a href="https://www.amazon.it/dp/1234567890">Book</a></td></tr></tbody></table>'
+        rows = auto.read_products(Page())
+        self.assertEqual(rows[0]['asin'], '1234567890')
+        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
+            store = auto.Store(Path(folder) / 'test.sqlite3')
+            store.products('today', rows, 'test')
+            self.assertEqual(store.db.execute('SELECT asin FROM auto_products').fetchone()[0], '1234567890')
+            store.db.close()
+
 
 if __name__ == '__main__':
     unittest.main()

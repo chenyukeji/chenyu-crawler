@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 TZ = timezone(timedelta(hours=8))
 ASIN = re.compile(r"\bB[A-Z0-9]{9}\b")
+ASIN_VALUE = re.compile(r'^[A-Z0-9]{10}$')
 SELLER = re.compile(r"^[A-Z0-9]{8,20}$")
 DEFAULT_URL = "https://cn.sellersprite.com/v3/"
 LABELS = {
@@ -132,7 +133,7 @@ class Store:
         with self.db:
             for item in items:
                 asin = str(item.get("asin") or "").upper()
-                if not ASIN.fullmatch(asin):
+                if not ASIN_VALUE.fullmatch(asin):
                     continue
                 sid = str(item.get("sellerId") or "").upper()
                 if not SELLER.fullmatch(sid):
@@ -226,10 +227,17 @@ def read_products(page):
         for tr in table.select("tbody tr"):
             text = tr.get_text(" ", strip=True)
             links = [a.get("href", "") for a in tr.select("a[href]")]
-            match = ASIN.search(" ".join(links) + " " + text)
-            if not match:
+            linked_asins = []
+            for link in links:
+                parsed = urlparse(link)
+                if parsed.hostname in {'amazon.it', 'www.amazon.it'}:
+                    match = re.search(r'/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)', parsed.path, re.I)
+                    if match:
+                        linked_asins.append(match.group(1).upper())
+            match = re.search(r'\bASIN\s*[:：]?\s*([A-Z0-9]{10})\b', text, re.I) or ASIN.search(text)
+            if not linked_asins and not match:
                 continue
-            asin = match.group()
+            asin = linked_asins[0] if linked_asins else (match.group(1).upper() if match.lastindex else match.group())
             ids = list(dict.fromkeys(filter(None, (seller_id_from_url(url) for url in links))))
             if previous and previous["asin"] == asin and not ids:
                 continue
