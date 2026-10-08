@@ -84,7 +84,7 @@ class WebsiteAuthContractTests(unittest.TestCase):
 
 class CrawlerAccessTests(unittest.IsolatedAsyncioTestCase):
     async def test_unauthenticated_pages_and_apis_are_blocked(self):
-        for path in ("/", "/today"):
+        for path in ("/", "/today", "/seller-vat"):
             status, headers, _ = await request_app(path)
             self.assertEqual(status, 303)
             self.assertTrue(headers["location"].startswith("/login?next="))

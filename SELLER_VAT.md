@@ -68,4 +68,4 @@
 
 ## Linux服务器
 
-本模块可在Linux上运行，但首次网页登录需有桌面或远程桌面。在同一服务器用户下运行 `python run_seller_vat.py login --channel chromium`；成功后使用 `python run_seller_vat.py run --channel chromium --headless`。账号登录状态保留在该服务器的专用目录。此功能当前为独立命令入口，尚未接入现有新品榜管理页面的按钮或每日调度；上传代码不等于部署服务。不要在GitHub Actions运行带会员会话的全量采集。
+本模块可在Linux上运行，但首次网页登录需有桌面或远程桌面。在同一服务器用户下运行 `python run_seller_vat.py login --channel chromium`；成功后使用 `python run_seller_vat.py run --channel chromium --headless`。账号登录状态保留在该服务器的专用目录。采集仍通过独立命令运行，尚未接入每日调度；管理员可在管理网页的“店铺税号”页面只读查看数据库中的批次、商品、店铺及税号。上传代码不等于部署服务。不要在GitHub Actions运行带会员会话的全量采集。

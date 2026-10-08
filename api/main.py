@@ -27,10 +27,12 @@ from crawler.amazon import validate_source
 from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
+from api.seller_vat_view import load_seller_vat_page
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "sources.json"
+SELLER_VAT_DB_PATH = ROOT / "data" / "seller_vat.sqlite3"
 
 
 @asynccontextmanager
@@ -51,7 +53,7 @@ templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 
 
 def safe_next_path(value: str) -> str:
-    return "/today" if value == "/today" else "/"
+    return value if value in {"/today", "/seller-vat"} else "/"
 
 
 @app.middleware("http")
@@ -395,6 +397,18 @@ def today(
             run_busy=run_busy,
         ),
     )
+
+
+@app.get("/seller-vat", response_class=HTMLResponse)
+def seller_vat_page(
+    request: Request, run_id: str = "", tab: str = "sellers",
+    q: str = "", status: str = "", page: int = 1,
+):
+    data = load_seller_vat_page(
+        SELLER_VAT_DB_PATH, run_id=run_id, tab=tab,
+        query=q, status=status, page=page,
+    )
+    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, **data})
 
 
 @app.post("/run")
