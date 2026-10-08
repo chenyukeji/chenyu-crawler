@@ -7,6 +7,7 @@ import csv
 import json
 import re
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -19,7 +20,6 @@ SITE_LABELS = {"it": "意大利", "fr": "法国", "de": "德国", "pl": "波兰"
 STATUS_LABELS = {"local_vat": "已公开本站税号", "other_vat": "仅其他国税号",
                  "no_public_vat": "未见公开税号", "failed": "访问失败", "pending": "待核查"}
 OUTPUT = ROOT / "outputs" / "seller-vat" / f"eu-store-{datetime.now(TZ).date().isoformat()}"
-DB = ROOT / "data" / "seller_vat.sqlite3"
 STORE_DB = ROOT / "data" / "amazon_it.sqlite3"
 COLUMNS = ["卖家ID", "店铺名称", "公司名称", "公司地址", "IT税号", "FR税号", "DE税号", "PL税号", "ES税号",
            "其他税号", "意大利店铺页", "法国店铺页", "德国店铺页", "波兰店铺页", "西班牙店铺页", "核查状态", "核查时间"]
@@ -114,8 +114,8 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
     evidence_path = OUTPUT / "店铺公开信息_逐站证据.jsonl"
     records = load_records(evidence_path)
     candidates = load_candidates()
-    with sqlite3.connect(DB) as db:
-        sellers = sorted({row[0] for row in db.execute("SELECT seller_id FROM auto_sellers")} | set(candidates))
+    with closing(sqlite3.connect(STORE_DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        sellers = sorted({row[0] for row in db.execute("SELECT seller_id FROM seller_discoveries")} | set(candidates))
     pending = [(seller_id, site) for seller_id in sellers for site in SITES
                if site not in skip_sites and
                ((seller_id, site) not in records or records[(seller_id, site)].get("status") == "failed")]

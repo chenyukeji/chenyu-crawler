@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from api.store_vat_view import load_amazon_db
-from merge_store_vat_database import merge
+from merge_store_vat_database import merge, save_discoveries
 from tests.test_auth import request_app
 
 
@@ -63,12 +63,8 @@ class StoreVatDatabaseTests(unittest.TestCase):
 
     def test_collector_checks_new_vats_after_saving(self):
         from run_store_eu_vat import main_async
-        legacy_db = self.root / 'collector.sqlite3'
-        with sqlite3.connect(legacy_db) as db:
-            db.execute('CREATE TABLE auto_sellers (seller_id TEXT)')
-            db.execute("INSERT INTO auto_sellers VALUES ('A1234567890')")
-        with patch('run_store_eu_vat.DB', legacy_db), \
-             patch('run_store_eu_vat.OUTPUT', self.root / 'report'), \
+        save_discoveries(self.db_path, [{'seller_id': 'A1234567890', 'seller_name': 'New Store'}])
+        with patch('run_store_eu_vat.OUTPUT', self.root / 'report'), \
              patch('run_store_eu_vat.STORE_DB', self.db_path), \
              patch('run_store_eu_vat.save_results', return_value=self.root / 'report.csv') as save, \
              patch('run_store_eu_vat.run_vies', return_value={'checked': 1}) as vies:

@@ -4,12 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
 
-from crawler.seller_vat import DEFAULT_URL, ROOT, SELLER, TZ, configure_research, restore_sellersprite_session, seller_url
+from crawler.seller_vat import DEFAULT_URL, ROOT, SELLER, TZ, configure_research, restore_sellersprite_session
 from merge_store_vat_database import save_discoveries
 
 PROFILE = ROOT / "data" / "sellersprite-profile"
@@ -31,7 +30,7 @@ def main() -> None:
     parser.add_argument("--max-pages", type=int, default=0)
     args = parser.parse_args()
     from playwright.sync_api import sync_playwright
-    with sync_playwright() as runtime, sqlite3.connect(ROOT / "data" / "seller_vat.sqlite3") as db:
+    with sync_playwright() as runtime:
         context = runtime.chromium.launch_persistent_context(str(PROFILE), headless=True,
                                                              viewport={"width": 1440, "height": 1000})
         try:
@@ -72,9 +71,6 @@ def main() -> None:
                         "company_snapshot": str(dto.get("businessName") or ""),
                         "first_page": pages,
                     })
-                    db.execute("INSERT OR IGNORE INTO auto_sellers(seller_id,source_url,status) VALUES (?,?,'pending')",
-                               (seller_id, seller_url(seller_id)))
-                db.commit()
                 save_candidates(candidates, pages, int(data.get("total") or 0))
                 print(f"page={pages} sellers={len(candidates)} rows={len(items)} reported_total={data.get('total')}", flush=True)
                 next_button = page.get_by_text("下一页", exact=True).first
