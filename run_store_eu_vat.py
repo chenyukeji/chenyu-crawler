@@ -18,7 +18,7 @@ from merge_store_vat_database import merge, save_site_result
 SITES = ("it", "fr", "de", "pl", "es")
 SITE_LABELS = {"it": "意大利", "fr": "法国", "de": "德国", "pl": "波兰", "es": "西班牙"}
 STATUS_LABELS = {"local_vat": "已公开本站税号", "other_vat": "仅其他国税号",
-                 "no_public_vat": "未见公开税号", "failed": "访问失败", "pending": "待核查"}
+                 "no_public_vat": "未见公开税号", "failed": "核查未完成", "pending": "待核查"}
 OUTPUT = ROOT / "outputs" / "seller-vat" / f"eu-store-{datetime.now(TZ).date().isoformat()}"
 STORE_DB = ROOT / "data" / "amazon_it.sqlite3"
 COLUMNS = ["卖家ID", "店铺名称", "公司名称", "公司地址", "IT税号", "FR税号", "DE税号", "PL税号", "ES税号",
@@ -108,6 +108,50 @@ def save_results(sellers: list[str], candidates: dict, records: dict) -> Path:
     return target
 
 
+async def fetch_public_seller(browser, context, url: str) -> dict:
+    """Read a public profile, retrying one transient response in a fresh context."""
+    for attempt in range(2):
+        active_context = context if attempt == 0 else await browser.new_context(
+            viewport={"width": 1280, "height": 1000})
+        page = await active_context.new_page()
+        http_status = None
+        retry = False
+        try:
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            http_status = response.status if response else None
+            await page.wait_for_timeout(500 if http_status == 200 else 1200)
+            body = await page.locator("body").inner_text(timeout=10000)
+            if any(marker in body.casefold() for marker in (
+                "enter the characters you see below", "robot check", "inserisci i caratteri",
+                "captcha", "unusual traffic", "verifica che tu sia umano",
+            )):
+                raise RuntimeError("Amazon 要求访问验证")
+            details = parse_seller(await page.content())
+            # Amazon sometimes returns 202 while rendering the seller profile.
+            # Published company/VAT fields are stronger evidence than that status.
+            if details["company"] or details["address"] or details["vats"]:
+                return {"details": details, "title": await page.title()}
+            if http_status == 202:
+                raise RuntimeError("Amazon 暂时返回 HTTP 202，店铺资料尚未加载")
+            if http_status != 200:
+                raise RuntimeError(f"HTTP {http_status if http_status is not None else 'unknown'}")
+            raise RuntimeError("没有识别到公开商业信息")
+        except Exception as error:
+            retry = attempt == 0 and "访问验证" not in str(error) and (
+                http_status in (None, 202, 429, 500, 502, 503, 504)
+                or "没有识别到公开商业信息" in str(error)
+            )
+            if not retry:
+                raise
+        finally:
+            await page.close()
+            if attempt:
+                await active_context.close()
+        if retry:
+            await asyncio.sleep(1.5)
+    raise RuntimeError("店铺资料未返回")
+
+
 async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], check_vies: bool = True,
                      seller_ids: set[str] | None = None) -> None:
     from playwright.async_api import async_playwright
@@ -154,29 +198,15 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
                     item = {"seller_id": seller_id, "site": site, "url": url,
                             "checked_at": datetime.now(TZ).isoformat(timespec="seconds")}
                     async with semaphore:
-                        page = await context.new_page()
                         try:
-                            response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                            if not response or response.status != 200:
-                                raise RuntimeError(f"HTTP {response.status if response else 'unknown'}")
-                            await page.wait_for_timeout(500)
-                            body = await page.locator("body").inner_text(timeout=10000)
-                            if any(marker in body.casefold() for marker in (
-                                "enter the characters you see below", "robot check", "inserisci i caratteri",
-                                "captcha", "unusual traffic", "verifica che tu sia umano",
-                            )):
-                                raise RuntimeError("访问验证")
-                            details = parse_seller(await page.content())
-                            if not details["company"] and not details["address"] and not details["vats"]:
-                                raise RuntimeError("没有识别到公开商业信息")
+                            profile = await fetch_public_seller(browser, context, url)
+                            details = profile["details"]
                             status = ("local_vat" if any(v["country"] == site.upper() for v in details["vats"])
                                       else "other_vat" if details["vats"] else "no_public_vat")
                             item.update(status=status, company=details["company"], address=details["address"],
-                                        vats=details["vats"], title=await page.title())
+                                        vats=details["vats"], title=profile["title"])
                         except Exception as error:
                             item.update(status="failed", error=f"{type(error).__name__}: {error}"[:180])
-                        finally:
-                            await page.close()
                         await asyncio.sleep(0.7)
                     async with write_lock:
                         # Commit first: every completed check remains in the database

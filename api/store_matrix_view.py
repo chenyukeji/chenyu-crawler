@@ -103,6 +103,7 @@ def _base_sql(tables: set[str]) -> str:
             COALESCE(NULLIF(TRIM({_column('c','source_url',checks)}),''),
                      NULLIF(TRIM(s.source_url),''),'') AS source_url,
             {"COALESCE(c.status,CASE WHEN d.seller_id IS NOT NULL AND s.seller_id IS NULL THEN 'pending' END)" if checks and discoveries else _column('c','status',checks)} AS status,
+            {_column('c','error',checks)} AS check_error,
             COALESCE({_column('c','checked_at',checks)},s.last_seen_at,'') AS checked_at,
             {_column('c','checked_at',checks)} AS site_checked_at,
             {'d.rowid' if discoveries else 'NULL'} AS discovery_order

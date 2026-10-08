@@ -62,6 +62,13 @@ class StoreMatrixTests(unittest.TestCase):
         self.assertEqual(row['seller_name'], 'New Shop')
         self.assertEqual(row['status'], 'pending')
 
+    def test_transient_access_error_is_available_to_status_view(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE seller_site_checks SET error='RuntimeError: HTTP 202' WHERE seller_id='A4444444444'")
+        row = load_store_matrix(self.path, query='A4444444444')['rows'][0]
+        self.assertEqual(row['status'], 'failed')
+        self.assertIn('HTTP 202', row['check_error'])
+
     def test_numeric_vat_requires_country_and_preserves_cross_site_country(self):
         with sqlite3.connect(self.path) as db:
             db.executemany('''INSERT INTO sellers(marketplace,seller_id,vat_number)
