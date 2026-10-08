@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/png" href="/favicon.png?v=2">
-  <title>店铺税号 · CHENYU AI</title>
+  <title>欧洲店铺商业信息 · CHENYU AI</title>
   <style>
     :root { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: #26313e; background: #f6f7f9; font-synthesis: none; }
     * { box-sizing: border-box; }
@@ -112,12 +112,12 @@
 <body>
   <header class="hero"><div class="hero-inner">
     <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true"><img src="/favicon.png?v=2" alt=""></span><span class="brand-copy"><strong>Amazon 数据采集</strong><small>CHENYU AI · 数据采集</small></span></a>
-    <nav class="view-nav" aria-label="采集页面"><a href="/">采集总览</a><a href="/today">今日采集</a><a href="/seller-vat" class="active" aria-current="page">店铺税号</a></nav>
+    <nav class="view-nav" aria-label="采集页面"><a href="/">采集总览</a><a href="/today">今日采集</a><a href="/seller-vat" class="active" aria-current="page">欧洲店铺商业信息</a></nav>
     <form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form>
   </div></header>
   <main>
 {% if store_view %}
-    <div class="heading"><div><h1>欧洲店铺税号</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
+    <div class="heading"><div><h1>欧洲店铺商业信息</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
       <form class="filters matrix-filters" action="/seller-vat" method="get">
@@ -143,7 +143,7 @@
       {% else %}<div class="empty"><strong>店铺数据库读取失败</strong><p>{{ store_view.error }}</p></div>{% endif %}
     </section>
 {% else %}
-    <div class="heading"><div><h1>店铺税号</h1><p>查看意大利站近 30 天上架商品对应的 BuyBox 店铺及其公开商业信息。</p></div><span class="scope">数据库随采集更新</span></div>
+    <div class="heading"><div><h1>欧洲店铺商业信息</h1><p>查看意大利站近 30 天上架商品对应的 BuyBox 店铺及其公开商业信息。</p></div><span class="scope">数据库随采集更新</span></div>
     <div class="schedule-strip" role="status"><strong>每小时自动采集</strong><span>{{ scheduler.message }}</span>{% if scheduler.next_run_at %}<span>下次：{{ scheduler.next_run_at.replace('T', ' ')[:19] }}</span>{% endif %}{% if scheduler.last_run_id %}<span>最近批次：{{ scheduler.last_run_id }}</span>{% endif %}</div>
     <div class="actions">
       <button class="button secondary" id="login-start" type="button">使用已配置账号登录</button>

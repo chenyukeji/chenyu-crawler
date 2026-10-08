@@ -231,7 +231,7 @@
   <header class="hero">
     <div class="hero-inner">
       <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true"><img src="/favicon.png?v=2" alt=""></span><span class="brand-copy"><h1>Amazon 新品榜采集</h1><small>CHENYU AI · 数据采集</small></span></a>
-      <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a><a href="/seller-vat">店铺税号</a></nav>
+      <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a><a href="/seller-vat">欧洲店铺商业信息</a></nav>
       <div class="hero-actions"><button class="primary" id="open-add-source" type="button">＋ 新增类目</button><form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form></div>
     </div>
   </header>
@@ -244,14 +244,14 @@
       <article class="stat"><div class="stat-label">覆盖站点</div><div class="stat-value">{{ marketplace_count }}</div><div class="stat-note">最新日期 {{ stats.latest_date or '—' }}</div></article>
     </section>
 
-    <section class="panel vat-overview overview-view" aria-label="店铺税号采集概况">
-      <div><h2>店铺税号采集</h2><p class="vat-description">意大利站发现店铺，逐站核查欧洲税号。下列数量为数据库累计记录。</p></div>
+    <section class="panel vat-overview overview-view" aria-label="欧洲店铺商业信息采集概况">
+      <div><h2>欧洲店铺商业信息采集</h2><p class="vat-description">意大利站发现店铺，逐站核查欧洲税号。下列数量为数据库累计记录。</p></div>
       <div class="vat-metrics">
         <div class="vat-metric"><small>店铺数</small><strong id="vat-stores">{{ '{:,}'.format(store_vat.stores) }}</strong></div>
         <div class="vat-metric"><small>不同税号</small><strong id="vat-vats">{{ '{:,}'.format(store_vat.vats) }}</strong></div>
         <div class="vat-metric"><small>已核查店铺站点</small><strong id="vat-checks">{{ '{:,}'.format(store_vat.checks) }}</strong></div>
       </div>
-      <div class="vat-actions"><span id="vat-state" class="status {{ 'success' if store_vat.checks else 'idle' }}">{{ '已有核查记录' if store_vat.checks else '暂无核查记录' }}</span><a href="/seller-vat">查看店铺税号 →</a><span id="vat-update" class="vat-update">最近核查：{{ store_vat.last_checked_at.replace('T',' ')[:19] if store_vat.last_checked_at else '—' }} · {{ store_vat.sites }} 个站点</span></div>
+      <div class="vat-actions"><span id="vat-state" class="status {{ 'success' if store_vat.checks else 'idle' }}">{{ '已有核查记录' if store_vat.checks else '暂无核查记录' }}</span><a href="/seller-vat">查看欧洲店铺商业信息 →</a><span id="vat-update" class="vat-update">最近核查：{{ store_vat.last_checked_at.replace('T',' ')[:19] if store_vat.last_checked_at else '—' }} · {{ store_vat.sites }} 个站点</span></div>
     </section>
 
     {% if saved %}<div class="notice success">配置已保存，调度器会自动读取新配置。</div>{% endif %}

@@ -81,7 +81,7 @@ class SellerVatPageTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers['cache-control'], 'no-store')
         self.assertIn('A1234567890'.encode(), body)
-        self.assertIn('店铺税号'.encode(), body)
+        self.assertIn('欧洲店铺商业信息'.encode(), body)
 
     def test_pagination_and_html_escape(self):
         store = self.make_store()
@@ -107,7 +107,7 @@ class SellerVatPageTests(unittest.TestCase):
             response = seller_vat_page(request)
         html = response.body.decode()
         self.assertEqual(response.status_code, 200)
-        self.assertIn('店铺税号', html)
+        self.assertIn('欧洲店铺商业信息', html)
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', html)
         self.assertNotIn('<script>alert(1)</script>', html)
 

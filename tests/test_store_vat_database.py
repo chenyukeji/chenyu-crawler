@@ -90,7 +90,7 @@ class StoreVatDatabaseTests(unittest.TestCase):
                 '/', headers={'cookie': 'chenyu_session=test'},
             ))
             self.assertEqual(status, 200)
-            self.assertIn('店铺税号采集'.encode(), body)
+            self.assertIn('欧洲店铺商业信息采集'.encode(), body)
             status, _, body = asyncio.run(request_app(
                 '/status', headers={'cookie': 'chenyu_session=test'},
             ))
