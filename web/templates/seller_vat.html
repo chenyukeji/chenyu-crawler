@@ -66,10 +66,7 @@
     .table-head { display: flex; justify-content: space-between; gap: 12px; padding: 15px 18px 10px; color: #778195; font-size: 12px; }
     .table-wrap { overflow-x: auto; }
     .matrix-panel { margin-top: 20px; }
-    .collection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-    .collection-bar .secondary { background: #fff; color: #2563eb; border: 1px solid #b9cff9; }
-    .collection-bar .secondary:hover { background: #edf4ff; }
-    .collection-bar a.button { display: inline-flex; align-items: center; }
+    .collection-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .matrix-panel { margin-top: 14px; }
     .matrix-panel .filters { padding: 8px 10px 4px; gap: 7px; }
     .matrix-panel .filters input, .matrix-panel .filters select, .matrix-panel .filters .button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
@@ -83,13 +80,18 @@
     .matrix-panel .pagination { padding: 8px; }
     .matrix-meta { display: inline-block; margin-left: 4px; color: #98a2b3; font-size: 10px; }
     .matrix-meta.similarity-score { color: #087a55; }
-    .collection-status { color: #667085; font-size: 13px; }
+    .collection-status { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 5px 10px; border: 1px solid #dce4ef; border-radius: 999px; background: #f8fafc; color: #475467; font-size: 12px; cursor: pointer; }
+    .collection-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #98a2b3; flex: none; }
+    .collection-status[data-state="checking"]::before, .collection-status[data-state="discovering"]::before { background: #2563eb; }
+    .collection-status[data-state="complete"]::before, .collection-status[data-state="logged_in"]::before { background: #087a55; }
+    .collection-status[data-state="failed"]::before { background: #b42318; }
+    .collection-status::after { content: "⌄"; color: #98a2b3; font-size: 13px; line-height: 1; }
+    .collection-detail { flex-basis: 100%; padding: 7px 10px; border: 1px solid #e3e7ec; border-radius: 6px; background: #fff; color: #667085; font-size: 12px; line-height: 1.5; }
     .button:disabled { opacity: .6; cursor: wait; }
     .matrix-filters { padding-bottom: 8px; }
     .matrix-filters .field:not(.search) { min-width: 135px; }
     .matrix-filters .field.store { min-width: 185px; }
     @media (max-width: 640px) { .matrix-filters .field.store { width: 100%; } }
-    .matrix-hint { margin: 0 10px 3px; color: #778195; font-size: 11px; }
     .matrix-table { min-width: 1000px; }
     .matrix-table td { max-width: 270px; overflow-wrap: anywhere; }
     .matrix-table td:nth-child(2) { min-width: 145px; }
@@ -134,19 +136,19 @@
   </div></header>
   <main>
 {% if store_view %}
-    <div class="heading"><div><h1>欧洲店铺商业信息</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><a class="button secondary" href="/seller-vat?recency=checked">查看最新结果</a><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
+    <div class="heading"><h1>欧洲店铺商业信息</h1></div>
+    <div class="collection-bar"><button class="button" id="collect-stores" type="button">采集店铺</button><button class="collection-status" id="collect-status" type="button" aria-live="polite" aria-expanded="false" aria-controls="collect-detail">读取进度…</button><span class="collection-detail" id="collect-detail" hidden></span></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
       <form class="filters matrix-filters" action="/seller-vat" method="get">
-        <div class="field store"><label for="seller">店铺</label><input id="seller" name="seller" value="{{ store_view.seller }}" maxlength="100" placeholder="卖家 ID 或店铺名称"></div>
-        <div class="field search"><label for="query">公司或税号</label><input id="query" name="q" value="{{ store_view.query }}" maxlength="100" placeholder="公司名称、VAT 税号或 VIES 名称"></div>
+        <div class="field store"><label for="seller">店铺</label><input id="seller" name="seller" value="{{ store_view.seller }}" maxlength="100" placeholder="ID 或名称"></div>
+        <div class="field search"><label for="query">公司 / 税号</label><input id="query" name="q" value="{{ store_view.query }}" maxlength="100" placeholder="公司名、VAT 或 VIES"></div>
         <div class="field"><label for="site">站点</label><select id="site" name="site"><option value="">全部站点</option>{% for item in store_view.sites %}<option value="{{ item.value }}" {% if store_view.site == item.value %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select></div>
-        <div class="field"><label for="recency">数据范围</label><select id="recency" name="recency"><option value="checked" {% if store_view.recency == 'checked' %}selected{% endif %}>核查结果 · 最新在前</option><option value="latest" {% if store_view.recency == 'latest' %}selected{% endif %}>新发现店铺 · 最新在前</option><option value="all" {% if store_view.recency == 'all' %}selected{% endif %}>全部历史记录</option></select></div>
-        <div class="field"><label for="similarity">公司名称相似度</label><select id="similarity" name="similarity"><option value="0">普通搜索</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>至少 {{ threshold }}%</option>{% endfor %}</select></div>
+        <div class="field"><label for="recency">范围</label><select id="recency" name="recency"><option value="checked" {% if store_view.recency == 'checked' %}selected{% endif %}>最新核查</option><option value="latest" {% if store_view.recency == 'latest' %}selected{% endif %}>新发现</option><option value="all" {% if store_view.recency == 'all' %}selected{% endif %}>全部记录</option></select></div>
+        <div class="field"><label for="similarity">相似度</label><select id="similarity" name="similarity"><option value="0">不限</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>≥ {{ threshold }}%</option>{% endfor %}</select></div>
         <button class="button" type="submit">筛选</button>
       </form>
-      <p class="matrix-hint">店铺和站点可同时筛选；VIES 名称由后台持续补查。官方只返回有效状态而没有公司名称时会明确标注。</p>
-      <div class="table-head"><span>匹配 {{ '{:,}'.format(store_view.total) }} 条店铺站点记录 · 第 {{ store_view.page }} / {{ store_view.pages }} 页</span><span>每页 50 条<span class="scroll-hint"> · 可左右滑动</span></span></div>
+      <div class="table-head"><span>{{ '{:,}'.format(store_view.total) }} 条 · {{ store_view.page }} / {{ store_view.pages }} 页</span><span>50 条/页<span class="scroll-hint"> · 可左右滑动</span></span></div>
       {% if store_view.rows %}<div class="table-wrap"><table class="matrix-table">
         <thead><tr><th>站点</th><th>店铺</th><th>公司名称</th><th>公开税号</th><th>VIES 公司名称</th><th>核查与来源</th></tr></thead>
         <tbody>{% for row in store_view.rows %}<tr>
@@ -218,72 +220,61 @@
 {% if store_view %}
   <script>
     const collectButton = document.getElementById('collect-stores');
-    const refreshLoginButton = document.getElementById('refresh-sellersprite');
-    let loginPending = false;
     const collectStatus = document.getElementById('collect-status');
+    const collectDetail = document.getElementById('collect-detail');
     let completedRun = '';
+    const count = value => Number(value || 0).toLocaleString('zh-CN');
+    function showStatus(label, detail = label, state = 'idle') {
+      collectStatus.textContent = label;
+      collectStatus.title = detail;
+      collectStatus.dataset.state = state;
+      collectDetail.textContent = detail;
+    }
+    collectStatus.addEventListener('click', () => {
+      const expanded = collectStatus.getAttribute('aria-expanded') !== 'true';
+      collectStatus.setAttribute('aria-expanded', String(expanded));
+      collectDetail.hidden = !expanded;
+    });
     async function refreshCollection() {
       try {
         const response = await fetch('/seller-vat/collect/status', {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
         if (!response.ok) return;
         const item = (await response.json()).collection;
-        const active = ['queued', 'discovering', 'checking'].includes(item.state);
-        collectButton.disabled = active || loginPending;
-        if (!loginPending && item.state !== 'idle') {
-          const progress = [];
-          if (item.pages_checked) progress.push(`已扫 ${item.pages_checked} 页`);
-          if (item.stores_found) progress.push(`发现 ${item.stores_found} 家店铺`);
-          if (item.new_stores !== undefined) progress.push(`新增 ${item.new_stores} 家`);
-          if (item.site_checks_total) progress.push(`站点核查 ${item.site_checks || 0}/${item.site_checks_total}`);
-          collectStatus.textContent = [item.message, ...progress].filter(Boolean).join(' · ');
-          if (item.state === 'complete' && item.run_id && item.run_id !== completedRun) {
-            completedRun = item.run_id;
-            if (sessionStorage.getItem('store-vat-complete') !== item.run_id) {
-              sessionStorage.setItem('store-vat-complete', item.run_id);
-              location.reload();
-            }
+        collectButton.disabled = ['queued', 'discovering', 'checking'].includes(item.state);
+        const progress = [];
+        if (item.pages_checked) progress.push(`已扫 ${count(item.pages_checked)} 页`);
+        if (item.stores_found) progress.push(`发现 ${count(item.stores_found)} 家店铺`);
+        if (item.new_stores !== undefined) progress.push(`新增 ${count(item.new_stores)} 家`);
+        if (item.site_checks_total) progress.push(`站点核查 ${count(item.site_checks)}/${count(item.site_checks_total)}`);
+        const detail = [item.message, ...progress].filter(Boolean).join(' · ') || '尚未启动采集';
+        const label = item.state === 'checking' && item.site_checks_total
+          ? `核查中 ${count(item.site_checks)}/${count(item.site_checks_total)}`
+          : item.state === 'discovering' ? `扫描中 ${count(item.pages_checked)} 页`
+          : item.state === 'queued' ? '准备采集'
+          : item.state === 'complete' ? '已完成'
+          : item.state === 'failed' ? '采集暂停'
+          : '待采集';
+        showStatus(label, detail, item.state);
+        if (item.state === 'complete' && item.run_id && item.run_id !== completedRun) {
+          completedRun = item.run_id;
+          if (sessionStorage.getItem('store-vat-complete') !== item.run_id) {
+            sessionStorage.setItem('store-vat-complete', item.run_id);
+            location.reload();
           }
         }
-      } catch (_) { collectStatus.textContent = '采集状态暂时无法读取'; }
+      } catch (_) { showStatus('状态暂不可用', '采集状态暂时无法读取', 'failed'); }
     }
     collectButton.addEventListener('click', async () => {
       collectButton.disabled = true;
-      collectStatus.textContent = '正在提交采集任务…';
+      showStatus('提交中…', '正在提交采集任务', 'queued');
       try {
         const response = await fetch('/seller-vat/collect/start', {method: 'POST',
           headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, credentials: 'same-origin'});
         const result = await response.json();
-        collectStatus.textContent = result.message || result.error || '启动失败';
-      } catch (_) { collectStatus.textContent = '连接失败，请稍后重试'; }
+        showStatus(response.ok ? '已提交' : '启动失败', result.message || result.error || '启动失败', response.ok ? 'queued' : 'failed');
+      } catch (_) { showStatus('连接失败', '连接失败，请稍后重试', 'failed'); }
       await refreshCollection();
     });
-    refreshLoginButton.addEventListener('click', async () => {
-      refreshLoginButton.disabled = true;
-      collectStatus.textContent = '正在刷新卖家精灵登录…';
-      try {
-        const response = await fetch('/seller-vat/login/start', {method: 'POST',
-          headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, credentials: 'same-origin'});
-        const result = await response.json();
-        collectStatus.textContent = result.message || result.error || '登录启动失败';
-        loginPending = response.ok;
-      } catch (_) { collectStatus.textContent = '连接失败，请稍后重试'; }
-      if (!loginPending) refreshLoginButton.disabled = false;
-    });
-    async function refreshLoginState() {
-      if (!loginPending) return;
-      try {
-        const response = await fetch('/seller-vat/login/status', {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
-        if (!response.ok) return;
-        const login = (await response.json()).login;
-        collectStatus.textContent = login.message || '正在刷新卖家精灵登录…';
-        if (['logged_in', 'failed', 'busy'].includes(login.state)) {
-          loginPending = false;
-          refreshLoginButton.disabled = false;
-          refreshCollection();
-        }
-      } catch (_) { collectStatus.textContent = '登录状态暂时无法读取'; }
-    }
-    setInterval(refreshLoginState, 5000);
     refreshCollection();
     setInterval(refreshCollection, 5000);
   </script>
