@@ -17,7 +17,8 @@
     .hero-inner { min-height: 72px; display: flex; align-items: stretch; gap: 28px; }
     .brand { display: flex; align-items: center; gap: 11px; min-width: 250px; color: inherit; }
     .brand:hover, .view-nav a:hover { text-decoration: none; }
-    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; }
+    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; background: #eef6fb; border: 1px solid #d6e7f4; padding: 2px; flex: none; }
+    .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .brand-copy strong { display: block; font-size: 16px; line-height: 1.35; }
     .brand-copy small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; }
     .view-nav { display: flex; align-items: stretch; gap: 4px; }
@@ -97,7 +98,7 @@
 </head>
 <body>
   <header class="hero"><div class="hero-inner">
-    <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><strong>Amazon 数据采集</strong><small>CHENYU AI · 数据采集</small></span></a>
+    <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true"><img src="/favicon.png?v=2" alt=""></span><span class="brand-copy"><strong>Amazon 数据采集</strong><small>CHENYU AI · 数据采集</small></span></a>
     <nav class="view-nav" aria-label="采集页面"><a href="/">采集总览</a><a href="/today">今日采集</a><a href="/seller-vat" class="active" aria-current="page">店铺税号</a></nav>
     <form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form>
   </div></header>

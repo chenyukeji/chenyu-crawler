@@ -11,7 +11,8 @@
     body { min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: 24px; }
     .login-card { width: min(100%, 400px); padding: 30px; background: #fff; border: 1px solid #e3e7ec; border-radius: 10px; }
     .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 28px; }
-    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 8px; background: #eef6fb; border: 1px solid #d6e7f4; padding: 2px; flex: none; }
+    .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .brand strong { display: block; font-size: 15px; }
     .brand small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; }
     h1 { margin: 0; font-size: 21px; font-weight: 600; }
@@ -29,7 +30,7 @@
 </head>
 <body>
   <main class="login-card">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span><strong>Amazon 新品榜采集</strong><small>CHENYU AI · 数据采集</small></span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="/favicon.png?v=2" alt=""></span><span><strong>Amazon 新品榜采集</strong><small>CHENYU AI · 数据采集</small></span></div>
     <h1>管理员登录</h1>
     <p class="hint">使用晨玙网站的管理员密码继续。</p>
     <form method="post" action="/login">

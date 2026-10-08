@@ -19,7 +19,8 @@
     .hero-inner, main { width: calc(100% - clamp(24px, 3vw, 64px)); margin: auto; }
     .hero-inner { min-height: 72px; display: flex; align-items: stretch; gap: 28px; }
     .brand { display: flex; align-items: center; gap: 11px; min-width: 250px; color: inherit; text-decoration: none; }
-    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 8px; background: #2563eb; color: #fff; font-size: 22px; line-height: 1; }
+    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 8px; background: #eef6fb; border: 1px solid #d6e7f4; padding: 2px; flex: none; line-height: 1; }
+    .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
     .brand-copy h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.35; }
     .brand-copy small { display: block; margin-top: 2px; color: #8994a3; font-size: 11px; line-height: 1.3; }
     .hero-actions { display: flex; align-items: center; gap: 9px; margin-left: auto; }
@@ -209,7 +210,7 @@
 <body data-view="{{ 'today' if is_today else 'overview' }}">
   <header class="hero">
     <div class="hero-inner">
-      <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true">✦</span><span class="brand-copy"><h1>Amazon 新品榜采集</h1><small>CHENYU AI · 数据采集</small></span></a>
+      <a class="brand" href="/" aria-label="CHENYU AI 采集总览"><span class="brand-mark" aria-hidden="true"><img src="/favicon.png?v=2" alt=""></span><span class="brand-copy"><h1>Amazon 新品榜采集</h1><small>CHENYU AI · 数据采集</small></span></a>
       <nav class="view-nav" aria-label="采集页面"><a href="/" class="{{ 'active' if not is_today else '' }}" {{ 'aria-current="page"' if not is_today else '' }}>采集总览</a><a href="/today" class="{{ 'active' if is_today else '' }}" {{ 'aria-current="page"' if is_today else '' }}>今日采集</a><a href="/seller-vat">店铺税号</a></nav>
       <div class="hero-actions"><button class="primary" id="open-add-source" type="button">＋ 新增类目</button><form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form></div>
     </div>
