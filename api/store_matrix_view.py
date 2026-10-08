@@ -95,6 +95,7 @@ def _base_sql(tables: set[str]) -> str:
             COALESCE(NULLIF(NULLIF(TRIM(s.vies_company_name),''),'---'),
                      NULLIF(NULLIF(TRIM({_column('v','vies_company_name',vies)}),''),'---'),'') AS vies_company_name,
             {_column('v','vies_valid',vies)} AS vies_valid,
+            {_column('v','country',vies)} AS vies_country,
             COALESCE(NULLIF(TRIM({_column('c','source_url',checks)}),''),
                      NULLIF(TRIM(s.source_url),''),'') AS source_url,
             {_column('c','status',checks)} AS status,
@@ -125,6 +126,17 @@ def _where(query: str, site: str, similarity: int, tables: set[str]) -> tuple[st
             "AND e.vat_number LIKE ? ESCAPE '\\')" if "seller_vat_evidence" in tables else ""
         ) + ")")
         args.extend([_like(query)] * (len(fields) + (1 if "seller_vat_evidence" in tables else 0)))
+        prefixed = query.upper().replace(" ", "")
+        if prefixed.startswith("IT") and _italian_vat_checksum(prefixed[2:]):
+            raw = prefixed[2:]
+            extra = " OR base.vat_number=?"
+            args.append(raw)
+            if "seller_vat_evidence" in tables:
+                extra += (" OR EXISTS (SELECT 1 FROM seller_vat_evidence e "
+                          "WHERE e.marketplace=base.marketplace AND e.seller_id=base.seller_id "
+                          "AND e.vat_number=?)")
+                args.append(raw)
+            clauses[-1] = clauses[-1][:-1] + extra + ")"
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
@@ -140,15 +152,49 @@ def _valid_source(url: str, marketplace: str, seller_id: str) -> str:
     return f"https://{host}/sp?seller={quote(seller_id, safe='')}" if site.isalpha() else ""
 
 
+def _italian_vat_checksum(number: str) -> bool:
+    if len(number) != 11 or not number.isascii() or not number.isdigit():
+        return False
+    total = sum(int(number[index]) for index in (0, 2, 4, 6, 8))
+    for index in (1, 3, 5, 7, 9):
+        doubled = int(number[index]) * 2
+        total += doubled - 9 if doubled > 9 else doubled
+    return (10 - total % 10) % 10 == int(number[10])
+
+
+def _display_vat(number: str, country_hint: str = "") -> tuple[str, bool]:
+    """Return a country-qualified VAT, or hide a number with no sound country basis."""
+    number = _text(number).upper().replace(" ", "")
+    if not number:
+        return "", False
+    if len(number) >= 3 and number[:2].isalpha() and number[:2].isascii():
+        return number, False
+    if number.isascii() and number.isdigit():
+        # EU VAT bodies have at most 12 characters. Longer numeric identifiers
+        # in the uploaded file cannot be labelled as an EU VAT here.
+        if len(number) > 12:
+            return "", False
+        country = _text(country_hint).upper()
+        if len(country) == 2 and country.isalpha() and country.isascii():
+            return country + number, False
+        if _italian_vat_checksum(number):
+            return "IT" + number, True
+        return "", False
+    return "", False
+
+
 def _add_vats(db: sqlite3.Connection, rows: list[dict], tables: set[str]) -> None:
     if not rows:
         return
     for row in rows:
         row["vats"] = []
         primary = _text(row.get("vat_number"))
-        if primary:
+        display, inferred = _display_vat(primary, row.get("vies_country") or "")
+        if display:
             row["vats"].append({
-                "number": primary, "vies_name": _text(row.get("vies_company_name")),
+                "number": display, "raw_number": primary,
+                "country_inferred": inferred,
+                "vies_name": _text(row.get("vies_company_name")),
                 "vies_valid": row.get("vies_valid"),
             })
     if "seller_vat_evidence" not in tables:
@@ -159,26 +205,32 @@ def _add_vats(db: sqlite3.Connection, rows: list[dict], tables: set[str]) -> Non
     vies_join = "LEFT JOIN vat_checks v ON v.vat_number=e.vat_number" if "vat_checks" in tables else ""
     vies_name = "v.vies_company_name" if "vat_checks" in tables else "NULL"
     vies_valid = "v.vies_valid" if "vat_checks" in tables else "NULL"
-    evidence = db.execute(f"""SELECT e.marketplace,e.seller_id,e.vat_number,
-        {vies_name} AS vies_company_name,{vies_valid} AS vies_valid
+    vies_country = "v.country" if "vat_checks" in tables else "NULL"
+    evidence = db.execute(f"""SELECT e.marketplace,e.seller_id,e.vat_number,e.vat_country,
+        {vies_name} AS vies_company_name,{vies_valid} AS vies_valid,{vies_country} AS vies_country
         FROM seller_vat_evidence e {vies_join}
         WHERE (e.marketplace,e.seller_id) IN ({placeholders})
         ORDER BY e.vat_number""", values)
     by_key = {(row["marketplace"], row["seller_id"]): row for row in rows}
     for item in evidence:
         row = by_key[(item["marketplace"], item["seller_id"])]
-        number = _text(item["vat_number"])
-        if not number:
+        raw = _text(item["vat_number"])
+        display, inferred = _display_vat(raw, item["vat_country"] or item["vies_country"] or "")
+        if not display:
             continue
-        existing = next((vat for vat in row["vats"] if vat["number"] == number), None)
+        existing = next((vat for vat in row["vats"] if vat["number"] == display), None)
         if existing:
             if not existing["vies_name"]:
                 existing["vies_name"] = _text(item["vies_company_name"])
             if existing["vies_valid"] is None:
                 existing["vies_valid"] = item["vies_valid"]
+            if not inferred:
+                existing["country_inferred"] = False
         else:
             row["vats"].append({
-                "number": number, "vies_name": _text(item["vies_company_name"]),
+                "number": display, "raw_number": raw,
+                "country_inferred": inferred,
+                "vies_name": _text(item["vies_company_name"]),
                 "vies_valid": item["vies_valid"],
             })
 

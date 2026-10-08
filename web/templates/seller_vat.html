@@ -71,6 +71,9 @@
     .store-data-table td[data-field="vies_company_name"] { font-weight: 600; }
     .source-note { margin: 0 18px 18px; color: #667085; font-size: 12px; line-height: 1.5; }
     .matrix-panel { margin-top: 20px; }
+    .collection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .collection-status { color: #667085; font-size: 13px; }
+    .button:disabled { opacity: .6; cursor: wait; }
     .matrix-filters { padding-bottom: 8px; }
     .matrix-filters .field:not(.search) { min-width: 135px; }
     .matrix-hint { margin: 0 18px 6px; color: #778195; font-size: 12px; }
@@ -117,7 +120,7 @@
   </div></header>
   <main>
 {% if store_view %}
-    <div class="heading"><div><h1>欧洲店铺税号</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p></div></div>
+    <div class="heading"><div><h1>欧洲店铺税号</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
       <form class="filters matrix-filters" action="/seller-vat" method="get">
@@ -126,7 +129,7 @@
         <div class="field"><label for="similarity">公司名称相似度</label><select id="similarity" name="similarity"><option value="0">普通搜索</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>至少 {{ threshold }}%</option>{% endfor %}</select></div>
         <button class="button" type="submit">筛选</button>
       </form>
-      <p class="matrix-hint">查找相似公司时，输入较完整的公司名称并选择相似度；公开公司名和 VIES 名称均参与匹配，结果按匹配度排序。</p>
+      <p class="matrix-hint">查找相似公司时，输入较完整的公司名称并选择相似度；公开公司名和 VIES 名称均参与匹配，结果按匹配度排序。符合意大利税号格式的历史纯数字编号会标注 IT（国家根据格式推断，仍需核验）；无法判定国家的编号不展示为 VAT。</p>
       <div class="table-head"><span>匹配 {{ '{:,}'.format(store_view.total) }} 条店铺站点记录 · 第 {{ store_view.page }} / {{ store_view.pages }} 页</span><span>每页 50 条<span class="scroll-hint"> · 可左右滑动</span></span></div>
       {% if store_view.rows %}<div class="table-wrap"><table class="matrix-table">
         <thead><tr><th>站点</th><th>店铺</th><th>公司名称</th><th>税号与 VIES 公司</th><th>公司地址</th><th>核查与来源</th></tr></thead>
@@ -134,7 +137,7 @@
           <td><span class="site-pill">{{ row.marketplace.replace('amazon.', '').upper() }}</span></td>
           <td><span class="mono">{{ row.seller_id }}</span>{% if row.seller_name %}<small>{{ row.seller_name }}</small>{% endif %}</td>
           <td><span class="company">{{ row.company_name or '—' }}</span>{% if row.company_source %}<small>{{ row.company_source }}</small>{% endif %}{% if store_view.similarity %}<small class="similarity-score">相似度 {{ row.similarity_score }}%</small>{% endif %}{% if row.similarity_url %}<small><a href="{{ row.similarity_url }}">查相似店铺</a></small>{% endif %}</td>
-          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono">{{ vat.number }}</span>{% if vat.vies_valid == 0 %}<small>VIES：当前无效</small>{% elif vat.vies_name %}<small>VIES：{{ vat.vies_name }}</small>{% elif vat.vies_valid == 1 %}<small>VIES：有效，未返回公司名</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono">{{ vat.number }}</span>{% if vat.country_inferred %}<small>IT 前缀由号码格式推断</small>{% endif %}{% if vat.vies_valid == 0 %}<small>VIES：当前无效</small>{% elif vat.vies_name %}<small>VIES：{{ vat.vies_name }}</small>{% elif vat.vies_valid == 1 %}<small>VIES：有效，未返回公司名</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td class="address">{{ row.business_address or '—' }}</td>
           <td>{% if row.status %}<span class="badge {{ 'failed' if row.status == 'failed' else 'ok' if row.status in ('local_vat','other_vat') else 'no_public_vat' }}">{{ {'local_vat':'已找到税号','other_vat':'其他国税号','no_public_vat':'未见公开税号','failed':'访问失败'}.get(row.status,row.status) }}</span>{% else %}<span class="muted">历史记录</span>{% endif %}{% if row.source_url %}<small><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">查看 Amazon 店铺 ↗</a></small>{% endif %}{% if row.checked_at %}<small>{{ row.checked_at[:19] }}</small>{% endif %}</td>
         </tr>{% endfor %}</tbody>
@@ -196,7 +199,50 @@
     </section>
 {% endif %}
   </main>
-{% if not store_view %}
+{% if store_view %}
+  <script>
+    const collectButton = document.getElementById('collect-stores');
+    const collectStatus = document.getElementById('collect-status');
+    let completedRun = '';
+    async function refreshCollection() {
+      try {
+        const response = await fetch('/seller-vat/collect/status', {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+        if (!response.ok) return;
+        const item = (await response.json()).collection;
+        const active = ['queued', 'discovering', 'checking'].includes(item.state);
+        collectButton.disabled = active;
+        if (item.state !== 'idle') {
+          const progress = [];
+          if (item.pages_checked) progress.push(`已扫 ${item.pages_checked} 页`);
+          if (item.stores_found) progress.push(`发现 ${item.stores_found} 家店铺`);
+          if (item.new_stores !== undefined) progress.push(`新增 ${item.new_stores} 家`);
+          if (item.site_checks_total) progress.push(`站点核查 ${item.site_checks || 0}/${item.site_checks_total}`);
+          collectStatus.textContent = [item.message, ...progress].filter(Boolean).join(' · ');
+          if (item.state === 'complete' && item.run_id && item.run_id !== completedRun) {
+            completedRun = item.run_id;
+            if (sessionStorage.getItem('store-vat-complete') !== item.run_id) {
+              sessionStorage.setItem('store-vat-complete', item.run_id);
+              location.reload();
+            }
+          }
+        }
+      } catch (_) { collectStatus.textContent = '采集状态暂时无法读取'; }
+    }
+    collectButton.addEventListener('click', async () => {
+      collectButton.disabled = true;
+      collectStatus.textContent = '正在提交采集任务…';
+      try {
+        const response = await fetch('/seller-vat/collect/start', {method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, credentials: 'same-origin'});
+        const result = await response.json();
+        collectStatus.textContent = result.message || result.error || '启动失败';
+      } catch (_) { collectStatus.textContent = '连接失败，请稍后重试'; }
+      await refreshCollection();
+    });
+    refreshCollection();
+    setInterval(refreshCollection, 5000);
+  </script>
+{% else %}
   <script>
     const loginButton = document.getElementById('login-start');
     const runButton = document.getElementById('vat-run');

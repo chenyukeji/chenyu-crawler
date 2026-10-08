@@ -31,6 +31,7 @@ from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
 from api.store_matrix_view import load_store_matrix
 from api.store_vat_view import load_store_overview
 import seller_vat_login
+import store_vat_collection
 from seller_vat_loop import TRIGGER, profile_ready
 from crawler.seller_vat import collection_lock_held, save_json
 
@@ -453,6 +454,20 @@ def seller_vat_login_start(request: Request):
 @app.get("/seller-vat/login/status")
 def seller_vat_login_status():
     return {"login": seller_vat_login.status(), "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH)}
+
+
+@app.post("/seller-vat/collect/start")
+def store_vat_collect_start(request: Request):
+    if rejection := _secure_vat_action(request):
+        return rejection
+    started, message, state = store_vat_collection.start()
+    return JSONResponse({"started": started, "message": message, "collection": state},
+                        status_code=202 if started else 409)
+
+
+@app.get("/seller-vat/collect/status")
+def store_vat_collect_status():
+    return {"collection": store_vat_collection.status()}
 
 
 @app.post("/seller-vat/run")

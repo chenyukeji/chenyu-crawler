@@ -74,7 +74,8 @@ def save_result(db: sqlite3.Connection, number: str, result: dict | None, error:
     db.commit()
 
 
-def run(path: Path, *, limit: int = 0, interval: float = 0.8) -> dict:
+def run(path: Path, *, limit: int = 0, interval: float = 0.8,
+        numbers: set[str] | None = None) -> dict:
     if not path.is_file():
         raise FileNotFoundError(path)
     db = sqlite3.connect(path.resolve().as_uri() + '?mode=rw', uri=True)
@@ -82,6 +83,8 @@ def run(path: Path, *, limit: int = 0, interval: float = 0.8) -> dict:
     try:
         db.executescript(SCHEMA)
         queue = candidates(db)
+        if numbers is not None:
+            queue = [number for number in queue if number in numbers]
         if limit:
             queue = queue[:limit]
         print(f'vies_queue={len(queue)}', flush=True)

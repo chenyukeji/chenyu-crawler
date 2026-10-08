@@ -11,7 +11,7 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-from crawler.seller_vat import ROOT, TZ, parse_seller
+from crawler.seller_vat import ROOT, TZ, SELLER, parse_seller
 from check_vies_vats import run as run_vies
 from merge_store_vat_database import merge
 
@@ -108,7 +108,8 @@ def save_results(sellers: list[str], candidates: dict, records: dict) -> Path:
     return target
 
 
-async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], check_vies: bool = True) -> None:
+async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], check_vies: bool = True,
+                     seller_ids: set[str] | None = None) -> None:
     from playwright.async_api import async_playwright
     OUTPUT.mkdir(parents=True, exist_ok=True)
     evidence_path = OUTPUT / "店铺公开信息_逐站证据.jsonl"
@@ -116,16 +117,23 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
     candidates = load_candidates()
     with closing(sqlite3.connect(STORE_DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         sellers = sorted({row[0] for row in db.execute("SELECT seller_id FROM seller_discoveries")} | set(candidates))
+    if seller_ids is not None:
+        sellers = [seller_id for seller_id in sellers if seller_id in seller_ids]
     pending = [(seller_id, site) for seller_id in sellers for site in SITES
                if site not in skip_sites and
                ((seller_id, site) not in records or records[(seller_id, site)].get("status") == "failed")]
     if limit_new:
         pending = pending[:limit_new * len(SITES)]
     print(f"stores={len(sellers)} pending_site_checks={len(pending)}", flush=True)
+    def batch_vats() -> set[str]:
+        return {vat.get("number", "") for (seller_id, _), record in records.items()
+                if seller_id in sellers for vat in record.get("vats", [])}
+    def check_batch_vies() -> dict:
+        return run_vies(STORE_DB, numbers=batch_vats()) if seller_ids is not None else run_vies(STORE_DB)
     if not pending:
         print(save_results(sellers, candidates, records), flush=True)
         if check_vies:
-            print(f"VIES: {run_vies(STORE_DB)}", flush=True)
+            print(f"VIES: {check_batch_vies()}", flush=True)
         return
     semaphore = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
@@ -179,20 +187,29 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
             await browser.close()
     print(save_results(sellers, candidates, records), flush=True)
     if check_vies:
-        print(f"VIES: {run_vies(STORE_DB)}", flush=True)
+        print(f"VIES: {check_batch_vies()}", flush=True)
 
 
 def main() -> None:
+    global OUTPUT
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit-new", type=int, default=0, help="Limit number of pending stores, 0=all")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--skip-sites", default="", help="Comma-separated site codes to defer")
     parser.add_argument("--skip-vies", action="store_true", help="Skip official VAT number checks")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT)
+    parser.add_argument("--seller-ids-file", type=Path)
     args = parser.parse_args()
     skip_sites = {site.strip() for site in args.skip_sites.split(",") if site.strip()}
     if args.limit_new < 0 or not 1 <= args.concurrency <= 5 or not skip_sites <= set(SITES):
         parser.error("limit-new must be nonnegative; concurrency must be 1..5; skip-sites must be EU site codes")
-    asyncio.run(main_async(args.limit_new, args.concurrency, skip_sites, not args.skip_vies))
+    OUTPUT = args.output_dir
+    seller_ids = None
+    if args.seller_ids_file:
+        seller_ids = set(json.loads(args.seller_ids_file.read_text(encoding="utf-8")))
+        if any(not isinstance(seller_id, str) or not SELLER.fullmatch(seller_id) for seller_id in seller_ids):
+            parser.error("seller-ids-file contains an invalid seller ID")
+    asyncio.run(main_async(args.limit_new, args.concurrency, skip_sites, not args.skip_vies, seller_ids))
 
 
 if __name__ == "__main__":

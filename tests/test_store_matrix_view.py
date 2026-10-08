@@ -52,6 +52,21 @@ class StoreMatrixTests(unittest.TestCase):
         self.assertEqual(result['rows'][0]['vats'][1]['vies_name'], 'EXAMPLE TRADING SP Z OO')
         self.assertEqual(load_store_matrix(self.path, query='%')['total'], 0)
 
+    def test_numeric_vat_requires_country_and_preserves_cross_site_country(self):
+        with sqlite3.connect(self.path) as db:
+            db.executemany('''INSERT INTO sellers(marketplace,seller_id,vat_number)
+                VALUES (?,?,?)''', [
+                ('amazon.it', 'A5555555555', '05172020264'),
+                ('amazon.es', 'A5555555555', '05172020264'),
+                ('amazon.it', 'A6666666666', '314537192100003'),
+            ])
+        result = load_store_matrix(self.path, query='IT05172020264')
+        self.assertEqual(result['total'], 2)
+        self.assertEqual({row['marketplace'] for row in result['rows']}, {'amazon.it', 'amazon.es'})
+        self.assertTrue(all(row['vats'][0]['number'] == 'IT05172020264' for row in result['rows']))
+        self.assertTrue(all(row['vats'][0]['country_inferred'] for row in result['rows']))
+        self.assertEqual(load_store_matrix(self.path, query='314537192100003')['rows'][0]['vats'], [])
+
     def test_company_similarity_filter_and_order(self):
         self.assertEqual(company_similarity('Example Trading Co., Ltd.', 'EXAMPLE TRADING LTD'), 100)
         self.assertLess(company_similarity('Example Trading Co., Ltd.', 'Unrelated Retail SL'), 70)
