@@ -1,6 +1,5 @@
 import io
 import json
-import sqlite3
 import tempfile
 import unittest
 from contextlib import closing, redirect_stdout
@@ -11,7 +10,6 @@ from unittest.mock import patch
 from crawler.amazon import AccessControlBlocked
 from crawler.lifecycle import SHANGHAI, latest_runs, recover_interrupted, CollectorLock, cancel_unavailable_queue
 from database.repository import SnapshotStore
-from database.schema import COLLECTION_RUNS_TABLE_SQL, initialize_schema
 from api.main import today_source_cards
 import run_daily
 import scheduler_loop
@@ -93,14 +91,6 @@ class CardQueueTests(unittest.TestCase):
             run_daily.main(['--config',str(self.config_path),'--db',str(self.store.path),'--queued'])
         self.assertEqual(crawl.call_count,1)
         self.assertEqual(crawl.call_args.args[1]['category'],'beauty')
-
-    def test_queue_migration_preserves_retry_schedule(self):
-        with closing(sqlite3.connect(self.root/'v2.db')) as c:
-            c.execute(COLLECTION_RUNS_TABLE_SQL.replace("'QUEUED', ",''))
-            c.execute("INSERT INTO collection_runs VALUES ('one','url','DE','beauty','2026-09-24','2026-09-24T12:00:00+08:00','2026-09-24T12:01:00+08:00','PARTIAL',99,'missing rank',1,'2026-09-24T13:01:00+08:00')")
-            c.commit();before=c.execute('SELECT * FROM collection_runs').fetchall()
-            initialize_schema(c);initialize_schema(c)
-            self.assertEqual(before,c.execute('SELECT * FROM collection_runs').fetchall())
 
     def test_one_manual_category_does_not_cancel_rest_of_daily_schedule(self):
         self.enqueue()

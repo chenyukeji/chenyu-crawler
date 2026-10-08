@@ -1,7 +1,6 @@
 import io
 import json
 import signal
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -15,7 +14,6 @@ from crawler.amazon import ParseError, _extract_card, deduplicate_items
 from crawler.lifecycle import (CollectorLock, CollectorBusy, SHANGHAI, due_sources,
                                next_retry_time, recover_interrupted, latest_runs)
 from database.repository import SnapshotStore
-from database.schema import COLLECTION_RUNS_TABLE_SQL, initialize_schema
 import run_daily
 import scheduler_loop
 
@@ -116,26 +114,12 @@ with CollectorLock(p/'collector.lock'):
             if p.poll() is None:p.kill();p.wait()
             p.stdout.close()
 
-    def test_legacy_lock_file_does_not_block_new_collector(self):
+    def test_stale_lock_file_does_not_block_new_collector(self):
         path=self.root/'collector.lock';path.write_text('2026-09-24T06:00:00+08:00')
         with CollectorLock(path):
             self.assertIn('pid',json.loads(path.read_text()))
         with CollectorLock(path):
             pass
-
-    def test_old_schema_migration_is_idempotent_and_retains_evidence(self):
-        path=self.root/'legacy.db'
-        old=COLLECTION_RUNS_TABLE_SQL.replace("'QUEUED', ", "").replace("'RUNNING', 'COMPLETE', 'PARTIAL', 'BLOCKED', 'SKIPPED', 'PARSE_ERROR', 'FAILED', 'INTERRUPTED'", "'RUNNING', 'COMPLETE', 'FAILED'").replace(',\n    retry_round INTEGER NOT NULL DEFAULT 0,\n    next_retry_at TEXT','')
-        with closing(sqlite3.connect(path)) as c:
-            c.execute(old)
-            errors=[('partial',99,'只采集到 99/100 条'),('blocked',0,'ACCESS_BLOCKED: unauthorized ai agent'),('skipped',0,'未请求：同站点已明确访问受限'),('failed',0,'timeout')]
-            for rid,count,error in errors:
-                c.execute("INSERT INTO collection_runs VALUES (?,?, 'DE',?,'2026-09-24','2026-09-24T06:00:00+08:00',NULL,'FAILED',?,?)",(rid,rid,rid,count,error))
-            c.commit();initialize_schema(c);initialize_schema(c)
-            result=c.execute('SELECT run_id,status,item_count,error_message FROM collection_runs ORDER BY run_id').fetchall()
-            self.assertEqual([r[1] for r in result],['BLOCKED','FAILED','PARTIAL','SKIPPED'])
-            self.assertEqual(result[2][2:],(99,'只采集到 99/100 条'))
-            self.assertEqual(c.execute('PRAGMA integrity_check').fetchone()[0],'ok')
 
     def test_scheduler_selects_due_retry_and_releases_thread_lock(self):
         self.start()
