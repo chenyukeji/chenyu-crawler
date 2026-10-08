@@ -53,7 +53,7 @@ def set_status(state: str, message: str) -> None:
     })
 
 
-def start(account: str, password: str) -> tuple[bool, str]:
+def start(account: str, password: str, force: bool = False) -> tuple[bool, str]:
     """Pass credentials over a one-use pipe; never put them in argv, env or files."""
     from crawler.seller_vat import collection_lock_held
     if collection_lock_held(LOCK):
@@ -67,7 +67,10 @@ def start(account: str, password: str) -> tuple[bool, str]:
         )
         assert process.stdin is not None
         try:
-            process.stdin.write(json.dumps({"account": account, "password": password}).encode())
+            credentials = {"account": account, "password": password}
+            if force:
+                credentials["force"] = True
+            process.stdin.write(json.dumps(credentials).encode())
             process.stdin.flush()
         finally:
             process.stdin.close()
@@ -77,11 +80,11 @@ def start(account: str, password: str) -> tuple[bool, str]:
     return True, "正在登录卖家精灵"
 
 
-def start_from_config() -> tuple[bool, str]:
+def start_from_config(force: bool = False) -> tuple[bool, str]:
     account, password = default_credentials()
     if not account or not password:
         return False, "请先在员工与权限页面配置卖家精灵账号"
-    return start(account, password)
+    return start(account, password, force=force)
 
 
 def verified_identity(page, timeout_seconds=20) -> bool:
@@ -105,6 +108,7 @@ def worker() -> int:
         credentials = json.load(sys.stdin)
         account = credentials.pop("account", "")
         password = credentials.pop("password", "")
+        force = bool(credentials.pop("force", False))
         del credentials
         if not account or not password:
             set_status("failed", "请输入账号和密码")
@@ -121,7 +125,7 @@ def worker() -> int:
                     session = json.loads(session_path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     session = {}
-                if session.get("account") == account:
+                if not force and session.get("account") == account:
                     restore_sellersprite_session(context, PROFILE, account)
                     page.goto(DEFAULT_URL, wait_until="domcontentloaded", timeout=60000)
                     if verified_identity(page, 12):

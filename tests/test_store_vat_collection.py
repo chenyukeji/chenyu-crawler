@@ -52,8 +52,8 @@ class StoreVatCollectionTests(unittest.TestCase):
                 db.execute("INSERT INTO sellers(marketplace,seller_id) VALUES ('amazon.it','A2222222222')")
             with patch.object(collection, 'DB', db_path):
                 selected, sites = collection._stores_to_check({'A1111111111', 'A2222222222', 'A3333333333'})
-            self.assertEqual(selected, ['A2222222222', 'A3333333333'])
-            self.assertEqual(sites, 9)
+            self.assertEqual(selected, ['A1111111111', 'A2222222222', 'A3333333333'])
+            self.assertEqual(sites, 14)
 
     def test_partial_scan_still_checks_saved_stores(self):
         import subprocess

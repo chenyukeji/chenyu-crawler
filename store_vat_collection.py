@@ -80,10 +80,15 @@ def start() -> tuple[bool, str, dict]:
             return False, "卖家精灵登录会话未就绪，请先刷新登录", current
         if collection_lock_held(LOCK):
             return False, "浏览器正在登录或采集，请稍后重试", current
-        run_id = "eu-store-" + datetime.now(TZ).strftime("%Y%m%d-%H%M%S-%f")
+        previous_id = current.get("run_id", "")
+        previous_folder = REPORTS / previous_id if RUN_ID.fullmatch(previous_id) else None
+        resume = bool(current.get("state") == "failed" and previous_folder
+                      and (previous_folder / "发现进度.json").is_file())
+        run_id = previous_id if resume else "eu-store-" + datetime.now(TZ).strftime("%Y%m%d-%H%M%S-%f")
         folder = REPORTS / run_id
-        folder.mkdir(parents=True)
-        initial = {"state": "queued", "run_id": run_id, "message": "已排队，准备扫描卖家精灵全部结果",
+        folder.mkdir(parents=True, exist_ok=True)
+        initial = {"state": "queued", "run_id": run_id,
+                   "message": "已排队，继续上次进度" if resume else "已排队，准备扫描卖家精灵全部结果",
                    "started_at": _now(), "pages_checked": 0, "stores_found": 0, "site_checks": 0}
         save_json(STATUS, initial)
         try:
@@ -108,7 +113,6 @@ def _stores_to_check(candidate_ids: set[str]) -> tuple[list[str], int]:
         raise FileNotFoundError(DB)
     with closing(sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        known = {row[0] for row in db.execute("SELECT DISTINCT seller_id FROM sellers")}
         checks: dict[str, dict[str, str]] = {}
         if "seller_site_checks" in tables:
             for seller_id, marketplace, check_status in db.execute(
@@ -119,7 +123,7 @@ def _stores_to_check(candidate_ids: set[str]) -> tuple[list[str], int]:
     for seller_id in sorted(candidate_ids):
         previous = checks.get(seller_id, {})
         missing = sum(previous.get(site) in (None, "failed") for site in ("it", "fr", "de", "pl", "es"))
-        if missing and (seller_id not in known or previous):
+        if missing:
             selected.append(seller_id)
             pending_sites += missing
     return selected, pending_sites
@@ -152,10 +156,13 @@ def worker(run_id: str) -> None:
             _execute([sys.executable, str(ROOT / "discover_recent_buybox_stores.py"),
                       "--output-dir", str(folder)], folder)
         except subprocess.CalledProcessError:
-            if not (folder / "店铺候选.json").is_file():
-                raise
             discovery_partial = True
-        candidate = json.loads((folder / "店铺候选.json").read_text(encoding="utf-8"))
+        candidate_path = folder / "店铺候选.json"
+        if not candidate_path.is_file():
+            _phase(run_id, "failed", "卖家精灵扫描未取得店铺；已保存进度，稍后自动重试",
+                   finished_at=_now())
+            return
+        candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
         new_ids, pending_sites = _stores_to_check({item["seller_id"] for item in candidate["stores"]})
         save_json(folder / "新店铺ID.json", new_ids)
         if new_ids:
@@ -164,7 +171,7 @@ def worker(run_id: str) -> None:
             _execute([sys.executable, str(ROOT / "run_store_eu_vat.py"),
                       "--output-dir", str(folder), "--seller-ids-file", str(folder / "新店铺ID.json")], folder)
         if discovery_partial:
-            _phase(run_id, "failed", f"卖家精灵扫描未覆盖全部结果；已保存发现店铺并核查 {len(new_ids)} 家，请检查翻页限制",
+            _phase(run_id, "failed", f"卖家精灵扫描未完成；已保存发现店铺并核查 {len(new_ids)} 家，稍后自动续采",
                    new_stores=len(new_ids), finished_at=_now())
         else:
             _phase(run_id, "complete", f"采集完成，核查 {len(new_ids)} 家新店铺或未完成店铺",

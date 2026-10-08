@@ -1,0 +1,10 @@
+[Unit]
+Description=Check European store collection each hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=chenyu-store-vat-auto.service
+
+[Install]
+WantedBy=timers.target

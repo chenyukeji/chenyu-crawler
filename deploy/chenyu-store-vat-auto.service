@@ -1,0 +1,13 @@
+[Unit]
+Description=Start automatic European Amazon store business information collection
+After=network-online.target chenyu-crawler.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/chenyu/chenyu-crawler
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/chenyu/chenyu-crawler/.venv/bin/python /home/ubuntu/chenyu/chenyu-crawler/store_vat_scheduler.py
+TimeoutStartSec=180
