@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from api.store_vat_view import load_amazon_db, load_store_overview
+from api.store_matrix_view import load_store_matrix
+from api.store_vat_view import load_store_overview
 from merge_store_vat_database import merge, save_discoveries
 from tests.test_auth import request_app
 
@@ -40,16 +41,15 @@ class StoreVatDatabaseTests(unittest.TestCase):
             db.executemany('INSERT INTO sellers(marketplace,seller_id,vat_number) VALUES (?,?,?)', [
                 ('amazon.fr', f'A{index:010d}', f'FR{index:011d}') for index in range(51)
             ])
-        result = load_amazon_db(self.db_path, query='Verified Company')
+        result = load_store_matrix(self.db_path, query='Verified Company')
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['rows'][0]['vies_company_name'], 'Verified Company')
-        self.assertIn('vies_company_name', [column['key'] for column in result['columns']])
-        self.assertEqual(load_amazon_db(self.db_path, country='IT')['total'], 1)
-        second = load_amazon_db(self.db_path, country='FR', page=2)
+        self.assertEqual(load_store_matrix(self.db_path, site='amazon.it')['total'], 1)
+        second = load_store_matrix(self.db_path, site='amazon.fr', page=2)
         self.assertEqual((second['total'], second['pages'], len(second['rows'])), (51, 2, 1))
         self.assertTrue(second['previous_url'])
         self.assertFalse(second['next_url'])
-        self.assertEqual(load_amazon_db(self.db_path, query='%')['total'], 0)
+        self.assertEqual(load_store_matrix(self.db_path, query='%')['total'], 0)
         from starlette.requests import Request
         from api.main import seller_vat_page
         request = Request({
@@ -110,7 +110,7 @@ class StoreVatDatabaseTests(unittest.TestCase):
 
     def test_missing_database_is_not_created(self):
         missing = self.root / 'missing.sqlite3'
-        self.assertIsNone(load_amazon_db(missing))
+        self.assertIsNone(load_store_matrix(missing))
         self.assertFalse(load_store_overview(missing)['available'])
         self.assertFalse(missing.exists())
 
@@ -142,9 +142,6 @@ class StoreVatDatabaseTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM seller_vat_evidence').fetchone()[0], 2)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM seller_site_checks').fetchone()[0], 2)
             self.assertEqual(db.execute('PRAGMA quick_check').fetchone()[0], 'ok')
-        evidence = load_amazon_db(self.db_path, table='seller_vat_evidence')
-        self.assertEqual(evidence['total'], 2)
-        self.assertIn('vat_country', [column['key'] for column in evidence['columns']])
 
 
 if __name__ == '__main__':

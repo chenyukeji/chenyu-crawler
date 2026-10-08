@@ -278,22 +278,6 @@ class Store:
                 "unresolved_products": sum(not r[1] for r in products), "pending_or_failed": len({r[0] for r in rows if r[6] not in ("ok", "no_public_vat")})}
 
 
-def select_dropdown(page, current_pattern, option_pattern):
-    controls = page.locator("input[readonly]:visible")
-    for i in range(controls.count()):
-        control = controls.nth(i)
-        if re.search(current_pattern, control.input_value()):
-            control.click()
-            option = page.locator(".el-select-dropdown__item:visible").filter(has_text=re.compile(option_pattern)).first
-            if not option.count():
-                option = page.get_by_text(re.compile(option_pattern), exact=True).filter(visible=True).first
-            option.click()
-            if not re.search(option_pattern, control.input_value()):
-                raise StopCollection("筛选值未生效，请核对网页界面。")
-            return
-    raise StopCollection(f"找不到筛选下拉框：{current_pattern}，网站界面可能更新。")
-
-
 def configure_research(page):
     check_page(page)
     # The current product-research page renders marketplace and month as buttons.
