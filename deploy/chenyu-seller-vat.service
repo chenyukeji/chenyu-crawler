@@ -1,0 +1,19 @@
+[Unit]
+Description=Chenyu Seller VAT Hourly Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/chenyu/chenyu-crawler
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/chenyu/chenyu-crawler/.venv/bin/python seller_vat_loop.py
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

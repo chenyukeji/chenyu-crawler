@@ -15,5 +15,6 @@ data/diagnostics*/
 *.sqlite3-*
 data/sellersprite-profile/
 data/browser-profile/
+data/seller-vat-scheduler.json
 outputs/seller-vat/
 tmp*/

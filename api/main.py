@@ -27,12 +27,13 @@ from crawler.amazon import validate_source
 from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
-from api.seller_vat_view import load_seller_vat_page
+from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "sources.json"
 SELLER_VAT_DB_PATH = ROOT / "data" / "seller_vat.sqlite3"
+SELLER_VAT_STATUS_PATH = ROOT / "data" / "seller-vat-scheduler.json"
 
 
 @asynccontextmanager
@@ -408,7 +409,7 @@ def seller_vat_page(
         SELLER_VAT_DB_PATH, run_id=run_id, tab=tab,
         query=q, status=status, page=page,
     )
-    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, **data})
+    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), **data})
 
 
 @app.post("/run")

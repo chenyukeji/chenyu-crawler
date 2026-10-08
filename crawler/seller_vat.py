@@ -32,6 +32,54 @@ class StopCollection(RuntimeError):
     pass
 
 
+def acquire_collection_lock(path):
+    """Use an OS lock on Linux so a terminated collector cannot block future runs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        import fcntl
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return None
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        return fd
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return None
+    os.write(fd, str(os.getpid()).encode())
+    return fd
+
+
+def collection_lock_held(path):
+    if os.name != "posix":
+        return path.exists()
+    import fcntl
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def release_collection_lock(path, fd):
+    if os.name == "posix":
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    else:
+        os.close(fd)
+        path.unlink(missing_ok=True)
+
+
 def now():
     return datetime.now(TZ).isoformat(timespec="seconds")
 
@@ -527,14 +575,11 @@ def main(argv=None):
         store.db.close()
         return 0
     lock = ROOT / "data" / "auto-collection.lock"
-    try:
-        lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    lock_fd = acquire_collection_lock(lock)
+    if lock_fd is None:
         store.db.close()
-        print("已有采集进程或上次异常退出留下锁。确认没有进程运行后删除 data/auto-collection.lock。")
+        print("已有采集或登录进程正在运行，请等待当前任务结束。")
         return 2
-    os.write(lock_fd, str(os.getpid()).encode())
-    os.close(lock_fd)
     exit_code = 0
     try:
         from playwright.sync_api import sync_playwright
@@ -598,7 +643,7 @@ def main(argv=None):
             save_json(manifest_path, manifest)
             print(f"结果目录：{folder}")
         store.db.close()
-        lock.unlink(missing_ok=True)
+        release_collection_lock(lock, lock_fd)
     return exit_code
 
 

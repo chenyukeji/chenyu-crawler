@@ -46,7 +46,27 @@
 
 价格拆分不能保证覆盖全部结果：同一价格集中超过上限、价格为空、隐藏结果、ASIN变体计数与网页总数不同、查询过程中数据变化等都会影响完整性。程序保留差额和警告；同价超限需要进一步按类目拆分。所有范围指卖家精灵当前账号可查询的数据。
 
-重新查询同一天会重建当天商品集合，保留已完成店铺缓存；ASIN发现阶段中断后，可重新运行（会从首页重新查询，卖家不重复采集），或 `--resume` 先处理已保存ASIN。税号阶段支持断点续跑。避免同时运行多个进程；异常断电留下锁时，确认没有采集进程后删除 `data/auto-collection.lock`。
+重新查询同一天会重建当天商品集合，保留已完成店铺缓存；ASIN发现阶段中断后，可重新运行（会从首页重新查询，卖家不重复采集），或 `--resume` 先处理已保存ASIN。税号阶段支持断点续跑。避免同时运行多个进程；Linux 使用操作系统进程锁，进程退出后会自动释放。Windows 上异常断电后若残留锁文件，先确认没有采集进程再删除 `data/auto-collection.lock`。
+
+## Linux 每小时自动采集
+
+服务定义在 `deploy/chenyu-seller-vat.service`。安装后随系统启动，每小时最多启动一轮，使用独立 Chromium 登录资料；一轮超过一小时则等它结束后再开始下一轮。登录资料不存在或失效时保持等待，不会持续请求卖家精灵。状态写入 `data/seller-vat-scheduler.json`，并显示在管理网页“店铺税号”页。
+
+```bash
+sudo cp deploy/chenyu-seller-vat.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now chenyu-seller-vat.service
+```
+
+首次登录须由使用该服务的 `ubuntu` 用户在服务器图形会话中执行；无图形会话时可使用远程桌面或带 X11 转发的 SSH。登录程序会打开浏览器，人工完成卖家精灵登录：
+
+```bash
+.venv/bin/python run_seller_vat.py login --channel chromium --login-wait 600
+```
+
+服务会在登录资料就绪后约一分钟内开始采集。网页显示“等待登录”时，先检查服务器是否有可用图形会话和登录是否成功。可用 `systemctl status chenyu-seller-vat.service` 查看服务，`journalctl -u chenyu-seller-vat.service -n 100 --no-pager` 查看日志。停止自动采集使用 `sudo systemctl disable --now chenyu-seller-vat.service`。
+
+每轮以开始时间创建独立批次，旧批次暂不自动删除；应监控 `data/seller_vat.sqlite3` 和 `outputs/seller-vat/` 的磁盘占用。明确受限、验证码或网站界面变化时，采集保留已有结果并记录原因，不尝试绕过验证。
 
 ## 登录与隐私
 
@@ -68,4 +88,4 @@
 
 ## Linux服务器
 
-本模块可在Linux上运行，但首次网页登录需有桌面或远程桌面。在同一服务器用户下运行 `python run_seller_vat.py login --channel chromium`；成功后使用 `python run_seller_vat.py run --channel chromium --headless`。账号登录状态保留在该服务器的专用目录。采集仍通过独立命令运行，尚未接入每日调度；管理员可在管理网页的“店铺税号”页面只读查看数据库中的批次、商品、店铺及税号。上传代码不等于部署服务。不要在GitHub Actions运行带会员会话的全量采集。
+本模块可在Linux上运行，但首次网页登录需有桌面或远程桌面。在同一服务器用户下运行 `python run_seller_vat.py login --channel chromium`；成功后使用 `python run_seller_vat.py run --channel chromium --headless`。账号登录状态保留在该服务器的专用目录。采集可通过独立命令或每小时后台服务运行；管理员可在管理网页的“店铺税号”页面只读查看数据库中的批次、商品、店铺及税号。不要在GitHub Actions运行带会员会话的全量采集。

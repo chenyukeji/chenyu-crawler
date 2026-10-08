@@ -1,6 +1,7 @@
 """Read-only, bounded queries for the SellerSprite BuyBox seller VAT page."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -10,6 +11,22 @@ from crawler.seller_vat import ASIN_VALUE, SELLER, seller_url
 
 PAGE_SIZE = 50
 STATUSES = {"pending", "ok", "no_public_vat", "failed"}
+
+
+def load_scheduler_status(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"state": "not_started", "message": "自动采集服务尚未启动"}
+    if not isinstance(payload, dict):
+        return {"state": "not_started", "message": "自动采集服务尚未启动"}
+    return {
+        "state": str(payload.get("state") or "not_started"),
+        "message": str(payload.get("message") or ""),
+        "next_run_at": str(payload.get("next_run_at") or ""),
+        "last_run_id": str(payload.get("last_run_id") or ""),
+        "updated_at": str(payload.get("updated_at") or ""),
+    }
 
 
 def _like(value: str) -> str:

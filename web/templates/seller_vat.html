@@ -29,6 +29,8 @@
     h1 { margin: 0; font-size: 23px; letter-spacing: -.02em; }
     .heading p { margin: 6px 0 0; color: #778195; font-size: 13px; }
     .scope { padding: 7px 10px; border-radius: 6px; color: #47618a; background: #eaf1ff; font-size: 12px; white-space: nowrap; }
+    .schedule-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 18px; padding: 12px 16px; border: 1px solid #dce8fb; border-radius: 8px; background: #f0f6ff; color: #385171; font-size: 13px; }
+    .schedule-strip strong { color: #175aa8; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
     .stat, .panel { background: #fff; border: 1px solid #e3e7ec; border-radius: 8px; }
     .stat { padding: 14px 18px; }
@@ -87,6 +89,7 @@
   </div></header>
   <main>
     <div class="heading"><div><h1>店铺税号</h1><p>查看意大利站近 30 天上架商品对应的 BuyBox 店铺及其公开商业信息。</p></div><span class="scope">只读 · 数据随采集更新</span></div>
+    <div class="schedule-strip" role="status"><strong>每小时自动采集</strong><span>{{ scheduler.message }}</span>{% if scheduler.next_run_at %}<span>下次：{{ scheduler.next_run_at.replace('T', ' ')[:19] }}</span>{% endif %}{% if scheduler.last_run_id %}<span>最近批次：{{ scheduler.last_run_id }}</span>{% endif %}</div>
     <section class="stats" aria-label="当前批次概览">
       <article class="stat"><div class="stat-label">商品记录</div><div class="stat-value">{{ summary.products }}</div><div class="stat-note">当前批次</div></article>
       <article class="stat"><div class="stat-label">BuyBox 店铺</div><div class="stat-value">{{ summary.sellers }}</div><div class="stat-note">有卖家 ID 的店铺</div></article>
