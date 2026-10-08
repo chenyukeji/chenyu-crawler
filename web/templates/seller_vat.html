@@ -68,8 +68,17 @@
     .matrix-panel { margin-top: 20px; }
     .collection-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .matrix-panel { margin-top: 14px; }
-    .matrix-panel .filters { padding: 8px 10px 4px; gap: 7px; }
-    .matrix-panel .filters input, .matrix-panel .filters select, .matrix-panel .filters .button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+    .matrix-filters { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 12px 14px 6px; }
+    .filter-searches { display: grid; grid-template-columns: minmax(0, 215px) minmax(0, 380px); gap: 8px; width: min(100%, 603px); }
+    .filter-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .filter-controls #site { width: 142px; }
+    .filter-controls #recency { width: 142px; }
+    .filter-controls #similarity { width: 148px; }
+    .matrix-filters input, .matrix-filters select, .matrix-filters .button { min-height: 34px; padding-top: 5px; padding-bottom: 5px; }
+    .matrix-filters .button { padding-inline: 16px; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @media (max-width: 1100px) { .matrix-filters { gap: 8px; } .filter-searches { width: 100%; grid-template-columns: minmax(0, 215px) minmax(0, 380px); } }
+    @media (max-width: 640px) { .filter-searches { grid-template-columns: 1fr; } .filter-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; } .filter-controls #site, .filter-controls #recency, .filter-controls #similarity, .filter-controls .button { width: 100%; } }
     .matrix-panel .table-head { padding: 5px 8px; }
     .matrix-table th { padding: 5px 8px; }
     .matrix-table td { padding: 5px 8px; font-size: 12px; line-height: 1.2; }
@@ -88,10 +97,6 @@
     .collection-status::after { content: "⌄"; color: #98a2b3; font-size: 13px; line-height: 1; }
     .collection-detail { flex-basis: 100%; padding: 7px 10px; border: 1px solid #e3e7ec; border-radius: 6px; background: #fff; color: #667085; font-size: 12px; line-height: 1.5; }
     .button:disabled { opacity: .6; cursor: wait; }
-    .matrix-filters { padding-bottom: 8px; }
-    .matrix-filters .field:not(.search) { min-width: 135px; }
-    .matrix-filters .field.store { min-width: 185px; }
-    @media (max-width: 640px) { .matrix-filters .field.store { width: 100%; } }
     .matrix-table { min-width: 1000px; }
     .matrix-table td { max-width: 270px; overflow-wrap: anywhere; }
     .matrix-table td:nth-child(2) { min-width: 145px; }
@@ -140,13 +145,17 @@
     <div class="collection-bar"><button class="button" id="collect-stores" type="button">采集店铺</button><button class="collection-status" id="collect-status" type="button" aria-live="polite" aria-expanded="false" aria-controls="collect-detail">读取进度…</button><span class="collection-detail" id="collect-detail" hidden></span></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
-      <form class="filters matrix-filters" action="/seller-vat" method="get">
-        <div class="field store"><label for="seller">店铺</label><input id="seller" name="seller" value="{{ store_view.seller }}" maxlength="100" placeholder="ID 或名称"></div>
-        <div class="field search"><label for="query">公司 / 税号</label><input id="query" name="q" value="{{ store_view.query }}" maxlength="100" placeholder="公司名、VAT 或 VIES"></div>
-        <div class="field"><label for="site">站点</label><select id="site" name="site"><option value="">全部站点</option>{% for item in store_view.sites %}<option value="{{ item.value }}" {% if store_view.site == item.value %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select></div>
-        <div class="field"><label for="recency">范围</label><select id="recency" name="recency"><option value="checked" {% if store_view.recency == 'checked' %}selected{% endif %}>最新核查</option><option value="latest" {% if store_view.recency == 'latest' %}selected{% endif %}>新发现</option><option value="all" {% if store_view.recency == 'all' %}selected{% endif %}>全部记录</option></select></div>
-        <div class="field"><label for="similarity">相似度</label><select id="similarity" name="similarity"><option value="0">不限</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>≥ {{ threshold }}%</option>{% endfor %}</select></div>
-        <button class="button" type="submit">筛选</button>
+      <form class="matrix-filters" action="/seller-vat" method="get">
+        <div class="filter-searches">
+          <div><label class="visually-hidden" for="seller">店铺</label><input id="seller" name="seller" value="{{ store_view.seller }}" maxlength="100" placeholder="搜索店铺 ID / 名称"></div>
+          <div><label class="visually-hidden" for="query">公司或税号</label><input id="query" name="q" value="{{ store_view.query }}" maxlength="100" placeholder="公司名称 / VAT / VIES"></div>
+        </div>
+        <div class="filter-controls">
+          <label class="visually-hidden" for="site">站点</label><select id="site" name="site"><option value="">全部站点</option>{% for item in store_view.sites %}<option value="{{ item.value }}" {% if store_view.site == item.value %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select>
+          <label class="visually-hidden" for="recency">范围</label><select id="recency" name="recency"><option value="checked" {% if store_view.recency == 'checked' %}selected{% endif %}>最新核查</option><option value="latest" {% if store_view.recency == 'latest' %}selected{% endif %}>新发现</option><option value="all" {% if store_view.recency == 'all' %}selected{% endif %}>全部记录</option></select>
+          <label class="visually-hidden" for="similarity">公司名称相似度</label><select id="similarity" name="similarity"><option value="0">相似度不限</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>相似度 ≥ {{ threshold }}%</option>{% endfor %}</select>
+          <button class="button" type="submit">筛选</button>
+        </div>
       </form>
       <div class="table-head"><span>{{ '{:,}'.format(store_view.total) }} 条 · {{ store_view.page }} / {{ store_view.pages }} 页</span><span>50 条/页<span class="scroll-hint"> · 可左右滑动</span></span></div>
       {% if store_view.rows %}<div class="table-wrap"><table class="matrix-table">
