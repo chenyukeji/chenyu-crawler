@@ -29,6 +29,7 @@ from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
 from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
 from api.store_matrix_view import load_store_matrix
+from api.store_vat_view import load_store_overview
 import seller_vat_login
 from seller_vat_loop import TRIGGER, profile_ready
 from crawler.seller_vat import collection_lock_held, save_json
@@ -317,7 +318,8 @@ def card_summary(cards):
 def live_status():
     config = load_config(CONFIG_PATH)
     cards = today_source_cards(config)
-    return {"sources": cards, "summary": card_summary(cards), "state": scheduler_state(), "stats": database_stats()}
+    return {"sources": cards, "summary": card_summary(cards), "state": scheduler_state(),
+            "stats": database_stats(), "store_vat": load_store_overview(AMAZON_IT_DB_PATH)}
 
 
 @app.post("/source/run")
@@ -361,6 +363,7 @@ def page_context(
         "marketplace_count": len({source["marketplace"] for source in sources}),
         "state": scheduler_state(),
         "stats": database_stats(),
+        "store_vat": load_store_overview(AMAZON_IT_DB_PATH),
         "saved": saved,
         "deleted": deleted,
         "run_started": run_started,

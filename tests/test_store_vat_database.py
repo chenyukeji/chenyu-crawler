@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from api.store_vat_view import load_amazon_db
+from api.store_vat_view import load_amazon_db, load_store_overview
 from merge_store_vat_database import merge, save_discoveries
 from tests.test_auth import request_app
 
@@ -68,6 +68,35 @@ class StoreVatDatabaseTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;'.encode(), body)
         self.assertNotIn('<script>alert(1)</script>'.encode(), body)
 
+    def test_overview_uses_current_store_database_and_exposes_live_counts(self):
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("INSERT INTO sellers(marketplace,seller_id,vat_number) VALUES (?,?,?)",
+                       ('amazon.fr', 'A1234567890', 'IT12345678901'))
+            db.executescript("""
+                CREATE TABLE seller_site_checks (
+                    marketplace TEXT, seller_id TEXT, checked_at TEXT
+                );
+                INSERT INTO seller_site_checks VALUES
+                    ('amazon.it','A1234567890','2026-10-08T15:05:18+08:00');
+            """)
+        expected = {
+            'available': True, 'stores': 1, 'vats': 1, 'sites': 2,
+            'checks': 1, 'last_checked_at': '2026-10-08T15:05:18+08:00',
+        }
+        self.assertEqual(load_store_overview(self.db_path), expected)
+        with patch('api.main.AMAZON_IT_DB_PATH', self.db_path), \
+             patch('api.main.verify_admin_session', return_value=True):
+            status, _, body = asyncio.run(request_app(
+                '/', headers={'cookie': 'chenyu_session=test'},
+            ))
+            self.assertEqual(status, 200)
+            self.assertIn('店铺税号采集'.encode(), body)
+            status, _, body = asyncio.run(request_app(
+                '/status', headers={'cookie': 'chenyu_session=test'},
+            ))
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)['store_vat'], expected)
+
     def test_collector_checks_new_vats_after_saving(self):
         from run_store_eu_vat import main_async
         save_discoveries(self.db_path, [{'seller_id': 'A1234567890', 'seller_name': 'New Store'}])
@@ -82,6 +111,7 @@ class StoreVatDatabaseTests(unittest.TestCase):
     def test_missing_database_is_not_created(self):
         missing = self.root / 'missing.sqlite3'
         self.assertIsNone(load_amazon_db(missing))
+        self.assertFalse(load_store_overview(missing)['available'])
         self.assertFalse(missing.exists())
 
     def test_merge_preserves_original_and_is_idempotent(self):

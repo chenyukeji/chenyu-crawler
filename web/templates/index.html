@@ -39,6 +39,17 @@
     .stat-label { color: #687588; font-size: 12px; font-weight: 500; }
     .stat-value { margin-top: 4px; font-size: 28px; font-weight: 600; letter-spacing: -.03em; }
     .stat-note { margin-top: 5px; color: #98a2b3; font-size: 12px; }
+    .vat-overview { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 2.2fr) auto; align-items: center; gap: 24px; padding: 18px 20px; }
+    .vat-overview h2 { font-size: 16px; }
+    .vat-description { margin: 5px 0 0; color: #778195; font-size: 12px; line-height: 1.5; }
+    .vat-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .vat-metric { padding-left: 17px; border-left: 1px solid #e8edf3; }
+    .vat-metric small { display: block; color: #778195; font-size: 12px; }
+    .vat-metric strong { display: block; margin-top: 3px; color: #182b46; font-size: 23px; font-weight: 650; line-height: 1.2; }
+    .vat-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; white-space: nowrap; }
+    .vat-actions a { color: #2563eb; font-size: 12px; font-weight: 600; text-decoration: none; }
+    .vat-actions a:hover { text-decoration: underline; }
+    .vat-update { color: #778195; font-size: 11px; }
     .grid { display: grid; grid-template-columns: minmax(360px, .8fr) minmax(0, 1.4fr); gap: 18px; margin-top: 18px; }
     .today-panel { margin-top: 0; }
     .overview-today { margin-top: auto; padding-top: 20px; border-top: 1px solid #edf0f4; }
@@ -161,7 +172,16 @@
       .today-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
       .source-grid { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-right: 4px; scrollbar-gutter: stable; }
     }
-    @media(max-width:1100px) { .brand { min-width: 210px; } .hero-inner { gap: 16px; } .panel-head { flex-wrap:wrap; } }
+    @media (min-width:1101px) and (min-height:680px) {
+      body[data-view="overview"] { height: auto; min-height: 100dvh; overflow: auto; display: block; }
+      body[data-view="overview"] main, body[data-view="overview"] main > form { display: block; }
+      body[data-view="overview"] .grid { min-height: 0; }
+      body[data-view="overview"] .grid .panel:last-child .chart { flex: none; height: 180px; min-height: 0; }
+      body[data-view="overview"] .grid .panel:last-child .bar-track { height: 120px; }
+    }
+    @media(max-width:1100px) { .brand { min-width: 210px; } .hero-inner { gap: 16px; } .panel-head { flex-wrap:wrap; } .vat-overview { grid-template-columns: 1fr auto; } .vat-metrics { grid-column: 1 / -1; grid-row: 2; } }
+    @media(max-width:640px) { .vat-overview { grid-template-columns: 1fr; gap: 15px; padding: 16px; } .vat-metrics { grid-column: 1; grid-row: auto; gap: 6px; } .vat-metric { padding-left: 8px; } .vat-metric:first-child { padding-left: 0; border-left: 0; } .vat-metric strong { font-size: 20px; } .vat-metric small { font-size: 11px; } .vat-actions { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; } .vat-update { flex-basis: 100%; } }
+
     @media(min-width:1200px) {
       .today-panel { padding: 12px 14px; }
       .today-panel .panel-head { margin-bottom: 8px; }
@@ -222,6 +242,16 @@
       <article class="stat"><div class="stat-label">快照记录</div><div class="stat-value" id="stat-observations">{{ stats.observations }}</div><div class="stat-note">最近 7 天</div></article>
       <article class="stat"><div class="stat-label">唯一 ASIN</div><div class="stat-value" id="stat-asins">{{ stats.unique_asins }}</div><div class="stat-note">当前数据库</div></article>
       <article class="stat"><div class="stat-label">覆盖站点</div><div class="stat-value">{{ marketplace_count }}</div><div class="stat-note">最新日期 {{ stats.latest_date or '—' }}</div></article>
+    </section>
+
+    <section class="panel vat-overview overview-view" aria-label="店铺税号采集概况">
+      <div><h2>店铺税号采集</h2><p class="vat-description">意大利站发现店铺，逐站核查欧洲税号。下列数量为数据库累计记录。</p></div>
+      <div class="vat-metrics">
+        <div class="vat-metric"><small>店铺数</small><strong id="vat-stores">{{ '{:,}'.format(store_vat.stores) }}</strong></div>
+        <div class="vat-metric"><small>不同税号</small><strong id="vat-vats">{{ '{:,}'.format(store_vat.vats) }}</strong></div>
+        <div class="vat-metric"><small>已核查店铺站点</small><strong id="vat-checks">{{ '{:,}'.format(store_vat.checks) }}</strong></div>
+      </div>
+      <div class="vat-actions"><span id="vat-state" class="status {{ 'success' if store_vat.checks else 'idle' }}">{{ '已有核查记录' if store_vat.checks else '暂无核查记录' }}</span><a href="/seller-vat">查看店铺税号 →</a><span id="vat-update" class="vat-update">最近核查：{{ store_vat.last_checked_at.replace('T',' ')[:19] if store_vat.last_checked_at else '—' }} · {{ store_vat.sites }} 个站点</span></div>
     </section>
 
     {% if saved %}<div class="notice success">配置已保存，调度器会自动读取新配置。</div>{% endif %}
@@ -443,6 +473,16 @@
         const all = document.querySelector('#run-all'); all.disabled = busy; all.textContent = busy ? '采集中…' : '立即运行';
         document.querySelector("#stat-observations").textContent = data.stats.observations;
         document.querySelector("#stat-asins").textContent = data.stats.unique_asins;
+        if (data.store_vat) {
+          const vat = data.store_vat;
+          document.querySelector('#vat-stores').textContent = Number(vat.stores || 0).toLocaleString();
+          document.querySelector('#vat-vats').textContent = Number(vat.vats || 0).toLocaleString();
+          document.querySelector('#vat-checks').textContent = Number(vat.checks || 0).toLocaleString();
+          const vatState = document.querySelector('#vat-state');
+          vatState.className = 'status ' + (vat.checks ? 'success' : 'idle');
+          vatState.textContent = vat.checks ? '已有核查记录' : '暂无核查记录';
+          document.querySelector('#vat-update').textContent = '最近核查：' + (vat.last_checked_at ? vat.last_checked_at.replace('T',' ').slice(0,19) : '—') + ' · ' + vat.sites + ' 个站点';
+        }
         data.stats.chart.forEach(point => {
           const bar = document.querySelector('.bar-item[data-date="' + point.date + '"]');
           if (bar) {bar.querySelector('.bar-count').textContent=point.count;bar.querySelector('.bar').style.height=point.height+'%';}
