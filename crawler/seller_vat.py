@@ -23,9 +23,9 @@ SELLER = re.compile(r"^[A-Z0-9]{8,20}$")
 DEFAULT_URL = "https://www.sellersprite.com/v3/product-research"
 SESSION_FILE = "sellersprite-session.json"
 LABELS = {
-    "company": re.compile(r"^(?:Ragione sociale|Nome (?:dell.?azienda|azienda|impresa)|Business name|Legal business name|Nombre de empresa|Nom commercial|Nom de l'entreprise|Unternehmensname)\s*[:：]", re.I),
-    "vat": re.compile(r"^(?:Partita IVA|Numero (?:di partita )?IVA|Numero di identificazione IVA|VAT(?: registration)? (?:number|ID)|Tax (?:number|ID)|Número de IVA|Num[eé]ro (?:de TVA|TVA)|Umsatzsteuer[^:]*|USt[^:]*)\s*[:：]", re.I),
-    "address": re.compile(r"^(?:Indirizzo (?:aziendale|dell.?azienda|commerciale)|Business address|Dirección empresarial|Adresse professionnelle|Geschäftsadresse)\s*[:：]", re.I),
+    "company": re.compile(r"^(?:Ragione sociale|Nome (?:dell.?azienda|azienda|impresa)|Business name|Legal business name|Nombre de empresa|Nom commercial|Nom de l'entreprise|Unternehmensname|Geschäftsname|Nazwa firmy|Nome azienda)\s*[:：]", re.I),
+    "vat": re.compile(r"^(?:Partita IVA|Numero (?:di partita )?IVA|Numero di identificazione IVA|VAT(?: registration)? (?:number|ID)|Tax (?:number|ID)|Número de IVA|Num[eé]ro (?:de TVA|TVA)|Umsatzsteuer[^:]*|USt[^:]*|Numer VAT)\s*[:：]", re.I),
+    "address": re.compile(r"^(?:Indirizzo (?:aziendale|dell.?azienda|commerciale)|Business address|Dirección empresarial|Adresse professionnelle|Geschäftsadresse|Adres firmy)\s*[:：]", re.I),
 }
 
 
@@ -158,6 +158,19 @@ def parse_seller(html):
         row = node.find_parent(class_="a-row") or node.parent
         text = row.get_text(" ", strip=True)
         value = LABELS[kind].sub("", text, count=1).strip()
+        if kind == "address" and not value:
+            # Amazon publishes address lines in following indented sibling rows.
+            lines = []
+            for sibling in row.next_siblings:
+                if not getattr(sibling, "name", None):
+                    continue
+                classes = sibling.get("class", [])
+                if "a-row" not in classes or "indent-left" not in classes:
+                    break
+                line = sibling.get_text(" ", strip=True)
+                if line:
+                    lines.append(line)
+            value = ", ".join(lines)
         if not value or value == text:
             continue
         if kind == "vat":

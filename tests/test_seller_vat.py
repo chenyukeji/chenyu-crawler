@@ -71,6 +71,17 @@ class AutoTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['sellerId'], 'A1234567890')
 
+    def test_polish_public_vat_and_multiline_address(self):
+        html = '''<div class="a-row"><span class="a-text-bold">Nazwa firmy:</span><span>ACME</span></div>
+        <div class="a-row"><span class="a-text-bold">Numer VAT:</span><span>PL5263517855</span></div>
+        <div class="a-row"><span class="a-text-bold">Adres firmy:</span></div>
+        <div class="a-row indent-left"><span>Street 1</span></div>
+        <div class="a-row indent-left"><span>Warsaw</span></div>'''
+        result = auto.parse_seller(html)
+        self.assertEqual(result['company'], 'ACME')
+        self.assertEqual(result['vats'][0]['number'], 'PL5263517855')
+        self.assertEqual(result['address'], 'Street 1, Warsaw')
+
     def test_rate_limit_stops_before_next_seller(self):
         from unittest.mock import Mock
         page = Mock()
