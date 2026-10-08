@@ -661,6 +661,8 @@ def main(argv=None):
                         input()
                     page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
                     check_page(page)
+                    from seller_vat_login import default_account
+                    save_sellersprite_session(context, args.profile, default_account())
                     print("已确认登录，浏览器登录状态保存在本机专用目录。")
                 else:
                     manifest["status"] = "running"
