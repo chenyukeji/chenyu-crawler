@@ -61,7 +61,7 @@
 ## 验证
 
 ```powershell
-.venv-auto\Scripts\python.exe -m unittest discover -s tests -p test_run_seller_vat.py -v
+.\env\.venv\Scripts\python.exe -m unittest discover -s tests -p test_seller_vat.py -v
 ```
 
 离线测试验证意大利/西班牙页面样例、多税号、前导零、登记号排除、店铺去重及API参数。真实网页筛选和全量覆盖需登录后的试跑验证。
