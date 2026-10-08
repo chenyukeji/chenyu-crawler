@@ -61,6 +61,21 @@ class StoreVatDatabaseTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;'.encode(), body)
         self.assertNotIn('<script>alert(1)</script>'.encode(), body)
 
+    def test_collector_checks_new_vats_after_saving(self):
+        from run_store_eu_vat import main_async
+        legacy_db = self.root / 'collector.sqlite3'
+        with sqlite3.connect(legacy_db) as db:
+            db.execute('CREATE TABLE auto_sellers (seller_id TEXT)')
+            db.execute("INSERT INTO auto_sellers VALUES ('A1234567890')")
+        with patch('run_store_eu_vat.DB', legacy_db), \
+             patch('run_store_eu_vat.OUTPUT', self.root / 'report'), \
+             patch('run_store_eu_vat.STORE_DB', self.db_path), \
+             patch('run_store_eu_vat.save_results', return_value=self.root / 'report.csv') as save, \
+             patch('run_store_eu_vat.run_vies', return_value={'checked': 1}) as vies:
+            asyncio.run(main_async(0, 1, {'it', 'fr', 'de', 'pl', 'es'}))
+        save.assert_called_once()
+        vies.assert_called_once_with(self.db_path)
+
     def test_missing_database_is_not_created(self):
         missing = self.root / 'missing.sqlite3'
         self.assertIsNone(load_amazon_db(missing))
