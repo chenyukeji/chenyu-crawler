@@ -71,6 +71,71 @@ def save_discoveries(db_path: Path, candidates: list[dict]) -> int:
         db.close()
 
 
+def upsert_site_result(db: sqlite3.Connection, item: dict,
+                       existing_vies: dict[str, str] | None = None) -> int:
+    """Write one completed store-site result within the caller's transaction."""
+    site = str(item.get("site") or "")
+    seller_id = str(item.get("seller_id") or "").upper()
+    if site not in SITES or not SELLER.fullmatch(seller_id):
+        raise ValueError("invalid store-site result")
+    marketplace = "amazon." + site
+    company = str(item.get("company") or "")
+    address = str(item.get("address") or "")
+    url = str(item.get("url") or f"https://www.amazon.{site}/sp?seller={seller_id}")
+    status = str(item.get("status") or "")
+    checked_at = str(item.get("checked_at") or "")
+    db.execute("""INSERT INTO seller_site_checks
+        (marketplace,seller_id,status,checked_at,error,company_name,business_address,source_url)
+        VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id) DO UPDATE SET
+        status=excluded.status,checked_at=excluded.checked_at,error=excluded.error,
+        company_name=excluded.company_name,business_address=excluded.business_address,
+        source_url=excluded.source_url""",
+        (marketplace, seller_id, status, checked_at, str(item.get("error") or ""), company, address, url))
+    vats = [vat for vat in item.get("vats", []) if isinstance(vat, dict) and vat.get("number")]
+    for vat in vats:
+        number = str(vat["number"])
+        db.execute("""INSERT INTO seller_vat_evidence
+            (marketplace,seller_id,vat_number,vat_country,company_name,business_address,source_url,checked_at)
+            VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id,vat_number) DO UPDATE SET
+            vat_country=excluded.vat_country,company_name=excluded.company_name,
+            business_address=excluded.business_address,source_url=excluded.source_url,
+            checked_at=excluded.checked_at""",
+            (marketplace, seller_id, number, str(vat.get("country") or ""), company, address, url, checked_at))
+    if status != "failed":
+        primary = next((vat for vat in vats if vat.get("country") == site.upper()), vats[0] if vats else {})
+        number = str(primary.get("number") or "")
+        if existing_vies is not None:
+            vies_name = existing_vies.get(number, "")
+        else:
+            row = db.execute("""SELECT vies_company_name FROM sellers WHERE vat_number=?
+                AND TRIM(COALESCE(vies_company_name,'')) NOT IN ('','---','—') LIMIT 1""", (number,)).fetchone()
+            vies_name = row[0] if row else ""
+        db.execute("""INSERT INTO sellers
+            (marketplace,seller_id,company_name,vat_number,vies_company_name,business_address,source_url,last_seen_at)
+            VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id) DO UPDATE SET
+            company_name=CASE WHEN TRIM(COALESCE(sellers.company_name,''))='' THEN excluded.company_name ELSE sellers.company_name END,
+            vat_number=CASE WHEN TRIM(COALESCE(sellers.vat_number,''))='' THEN excluded.vat_number ELSE sellers.vat_number END,
+            vies_company_name=CASE WHEN TRIM(COALESCE(sellers.vies_company_name,'')) IN ('','---','—') THEN excluded.vies_company_name ELSE sellers.vies_company_name END,
+            business_address=CASE WHEN TRIM(COALESCE(sellers.business_address,''))='' THEN excluded.business_address ELSE sellers.business_address END,
+            source_url=CASE WHEN TRIM(COALESCE(sellers.source_url,''))='' THEN excluded.source_url ELSE sellers.source_url END,
+            last_seen_at=excluded.last_seen_at""",
+            (marketplace, seller_id, company, number, vies_name, address, url, checked_at))
+    return len(vats)
+
+
+def save_site_result(db_path: Path, item: dict) -> int:
+    """Commit one result so a stopped collection keeps every completed check."""
+    if not db_path.is_file():
+        raise FileNotFoundError(db_path)
+    db = sqlite3.connect(db_path.resolve().as_uri() + "?mode=rw", uri=True, timeout=30)
+    try:
+        db.executescript(SCHEMA)
+        with db:
+            return upsert_site_result(db, item)
+    finally:
+        db.close()
+
+
 def merge(db_path: Path, report_dir: Path) -> dict:
     if not db_path.is_file():
         raise FileNotFoundError(db_path)
@@ -89,51 +154,9 @@ def merge(db_path: Path, report_dir: Path) -> dict:
             )
         }
         discoveries = upsert_discoveries(db, candidates)
-        site_checks = 0
-        vat_rows = 0
-        for (seller_id, site), item in evidence.items():
-            marketplace = "amazon." + site
-            company = str(item.get("company") or "")
-            address = str(item.get("address") or "")
-            url = str(item.get("url") or f"https://www.amazon.{site}/sp?seller={seller_id}")
-            status = str(item.get("status") or "")
-            checked_at = str(item.get("checked_at") or "")
-            db.execute("""INSERT INTO seller_site_checks
-                (marketplace,seller_id,status,checked_at,error,company_name,business_address,source_url)
-                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id) DO UPDATE SET
-                status=excluded.status,checked_at=excluded.checked_at,error=excluded.error,
-                company_name=excluded.company_name,business_address=excluded.business_address,
-                source_url=excluded.source_url""",
-                (marketplace, seller_id, status, checked_at, str(item.get("error") or ""), company, address, url))
-            site_checks += 1
-            vats = [v for v in item.get("vats", []) if isinstance(v, dict) and v.get("number")]
-            for vat in vats:
-                number = str(vat["number"])
-                db.execute("""INSERT INTO seller_vat_evidence
-                    (marketplace,seller_id,vat_number,vat_country,company_name,business_address,source_url,checked_at)
-                    VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id,vat_number) DO UPDATE SET
-                    vat_country=excluded.vat_country,company_name=excluded.company_name,
-                    business_address=excluded.business_address,source_url=excluded.source_url,
-                    checked_at=excluded.checked_at""",
-                    (marketplace, seller_id, number, str(vat.get("country") or ""), company, address, url, checked_at))
-                vat_rows += 1
-            if status == "failed":
-                continue
-            primary = next((v for v in vats if v.get("country") == site.upper()), vats[0] if vats else {})
-            number = str(primary.get("number") or "")
-            vies_name = existing_vies.get(number, "")
-            db.execute("""INSERT INTO sellers
-                (marketplace,seller_id,company_name,vat_number,vies_company_name,business_address,source_url,last_seen_at)
-                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(marketplace,seller_id) DO UPDATE SET
-                company_name=CASE WHEN TRIM(COALESCE(sellers.company_name,''))='' THEN excluded.company_name ELSE sellers.company_name END,
-                vat_number=CASE WHEN TRIM(COALESCE(sellers.vat_number,''))='' THEN excluded.vat_number ELSE sellers.vat_number END,
-                vies_company_name=CASE WHEN TRIM(COALESCE(sellers.vies_company_name,'')) IN ('','---','—') THEN excluded.vies_company_name ELSE sellers.vies_company_name END,
-                business_address=CASE WHEN TRIM(COALESCE(sellers.business_address,''))='' THEN excluded.business_address ELSE sellers.business_address END,
-                source_url=CASE WHEN TRIM(COALESCE(sellers.source_url,''))='' THEN excluded.source_url ELSE sellers.source_url END,
-                last_seen_at=excluded.last_seen_at""",
-                (marketplace, seller_id, company, number, vies_name, address, url, checked_at))
+        vat_rows = sum(upsert_site_result(db, item, existing_vies) for item in evidence.values())
         db.commit()
-        return {"discoveries": discoveries, "site_checks": site_checks, "vat_evidence": vat_rows,
+        return {"discoveries": discoveries, "site_checks": len(evidence), "vat_evidence": vat_rows,
                 "sellers_total": db.execute("SELECT COUNT(*) FROM sellers").fetchone()[0]}
     except Exception:
         db.rollback()

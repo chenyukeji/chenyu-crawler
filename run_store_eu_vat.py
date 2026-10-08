@@ -13,7 +13,7 @@ from pathlib import Path
 
 from crawler.seller_vat import ROOT, TZ, SELLER, parse_seller
 from check_vies_vats import run as run_vies
-from merge_store_vat_database import merge
+from merge_store_vat_database import merge, save_site_result
 
 SITES = ("it", "fr", "de", "pl", "es")
 SITE_LABELS = {"it": "意大利", "fr": "法国", "de": "德国", "pl": "波兰", "es": "西班牙"}
@@ -117,10 +117,15 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
     candidates = load_candidates()
     with closing(sqlite3.connect(STORE_DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         sellers = sorted({row[0] for row in db.execute("SELECT seller_id FROM seller_discoveries")} | set(candidates))
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        completed_in_db = ({(seller_id, marketplace.removeprefix("amazon."))
+                            for seller_id, marketplace in db.execute(
+                                "SELECT seller_id,marketplace FROM seller_site_checks WHERE status!='failed'")}
+                           if "seller_site_checks" in tables else set())
     if seller_ids is not None:
         sellers = [seller_id for seller_id in sellers if seller_id in seller_ids]
     pending = [(seller_id, site) for seller_id in sellers for site in SITES
-               if site not in skip_sites and
+               if site not in skip_sites and (seller_id, site) not in completed_in_db and
                ((seller_id, site) not in records or records[(seller_id, site)].get("status") == "failed")]
     if limit_new:
         pending = pending[:limit_new * len(SITES)]
@@ -174,12 +179,14 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
                             await page.close()
                         await asyncio.sleep(0.7)
                     async with write_lock:
+                        # Commit first: every completed check remains in the database
+                        # even when the browser or export stops before the next page.
+                        save_site_result(STORE_DB, item)
                         records[(seller_id, site)] = item
                         evidence.write(json.dumps(item, ensure_ascii=False) + "\n")
                         evidence.flush()
                         completed += 1
                         if completed % 10 == 0 or completed == len(pending):
-                            save_results(sellers, candidates, records)
                             print(f"site_checks={completed}/{len(pending)} stores_with_results={len({s for s, _ in records})}", flush=True)
                 await asyncio.gather(*(check(seller_id, site) for seller_id, site in pending))
         finally:

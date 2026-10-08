@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 from datetime import datetime
+from contextlib import closing
 from pathlib import Path
 
 from crawler.seller_vat import (ROOT, TZ, acquire_collection_lock,
@@ -101,15 +102,27 @@ def start() -> tuple[bool, str, dict]:
         return True, "已启动全量扫描，页面会显示进度", status()
 
 
-def _known_store_ids() -> set[str]:
+def _stores_to_check(candidate_ids: set[str]) -> tuple[list[str], int]:
+    """Include unfinished stores from earlier runs and count missing site checks."""
     if not DB.is_file():
         raise FileNotFoundError(DB)
-    with sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True) as db:
+    with closing(sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         known = {row[0] for row in db.execute("SELECT DISTINCT seller_id FROM sellers")}
-        if "seller_discoveries" in tables:
-            known.update(row[0] for row in db.execute("SELECT seller_id FROM seller_discoveries"))
-        return known
+        checks: dict[str, dict[str, str]] = {}
+        if "seller_site_checks" in tables:
+            for seller_id, marketplace, check_status in db.execute(
+                    "SELECT seller_id,marketplace,status FROM seller_site_checks"):
+                checks.setdefault(seller_id, {})[marketplace.removeprefix("amazon.")] = check_status
+    selected = []
+    pending_sites = 0
+    for seller_id in sorted(candidate_ids):
+        previous = checks.get(seller_id, {})
+        missing = sum(previous.get(site) in (None, "failed") for site in ("it", "fr", "de", "pl", "es"))
+        if missing and (seller_id not in known or previous):
+            selected.append(seller_id)
+            pending_sites += missing
+    return selected, pending_sites
 
 
 def _phase(run_id: str, state: str, message: str, **extra) -> None:
@@ -133,20 +146,29 @@ def worker(run_id: str) -> None:
         _phase(run_id, "failed", "浏览器正在登录或采集，请稍后重试", finished_at=_now())
         return
     try:
-        baseline = _known_store_ids()
         _phase(run_id, "discovering", "正在扫描卖家精灵近 30 天全部结果")
-        _execute([sys.executable, str(ROOT / "discover_recent_buybox_stores.py"),
-                  "--output-dir", str(folder)], folder)
+        discovery_partial = False
+        try:
+            _execute([sys.executable, str(ROOT / "discover_recent_buybox_stores.py"),
+                      "--output-dir", str(folder)], folder)
+        except subprocess.CalledProcessError:
+            if not (folder / "店铺候选.json").is_file():
+                raise
+            discovery_partial = True
         candidate = json.loads((folder / "店铺候选.json").read_text(encoding="utf-8"))
-        new_ids = sorted({item["seller_id"] for item in candidate["stores"]} - baseline)
+        new_ids, pending_sites = _stores_to_check({item["seller_id"] for item in candidate["stores"]})
         save_json(folder / "新店铺ID.json", new_ids)
         if new_ids:
-            _phase(run_id, "checking", f"已发现 {len(new_ids)} 家新店铺，正在核查欧洲站公开信息",
-                   new_stores=len(new_ids), site_checks_total=len(new_ids) * 5)
+            _phase(run_id, "checking", f"正在核查 {len(new_ids)} 家新店铺或未完成店铺的欧洲站公开信息",
+                   new_stores=len(new_ids), site_checks_total=pending_sites)
             _execute([sys.executable, str(ROOT / "run_store_eu_vat.py"),
                       "--output-dir", str(folder), "--seller-ids-file", str(folder / "新店铺ID.json")], folder)
-        _phase(run_id, "complete", f"采集完成，新增 {len(new_ids)} 家店铺",
-               new_stores=len(new_ids), finished_at=_now())
+        if discovery_partial:
+            _phase(run_id, "failed", f"卖家精灵扫描未覆盖全部结果；已保存发现店铺并核查 {len(new_ids)} 家，请检查翻页限制",
+                   new_stores=len(new_ids), finished_at=_now())
+        else:
+            _phase(run_id, "complete", f"采集完成，核查 {len(new_ids)} 家新店铺或未完成店铺",
+                   new_stores=len(new_ids), finished_at=_now())
     except Exception as error:
         _phase(run_id, "failed", f"采集失败：{type(error).__name__}: {error}", finished_at=_now())
         raise

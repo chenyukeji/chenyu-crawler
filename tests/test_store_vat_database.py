@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from api.store_matrix_view import load_store_matrix
 from api.store_vat_view import load_store_overview
-from merge_store_vat_database import merge, save_discoveries
+from merge_store_vat_database import merge, save_discoveries, save_site_result
 from tests.test_auth import request_app
 
 
@@ -113,6 +113,34 @@ class StoreVatDatabaseTests(unittest.TestCase):
         self.assertIsNone(load_store_matrix(missing))
         self.assertFalse(load_store_overview(missing)['available'])
         self.assertFalse(missing.exists())
+
+    def test_resumed_collector_skips_site_checks_already_in_database(self):
+        from run_store_eu_vat import main_async
+        save_discoveries(self.db_path, [{'seller_id': 'A1234567893', 'seller_name': 'Resumed Store'}])
+        for site in ('it', 'fr', 'de', 'pl', 'es'):
+            save_site_result(self.db_path, {'seller_id': 'A1234567893', 'site': site,
+                                            'status': 'no_public_vat', 'checked_at': '2026-10-08'})
+        with patch('run_store_eu_vat.OUTPUT', self.root / 'resume'), \
+             patch('run_store_eu_vat.STORE_DB', self.db_path), \
+             patch('run_store_eu_vat.save_results', return_value=self.root / 'resume.csv') as save:
+            asyncio.run(main_async(0, 1, set(), False, {'A1234567893'}))
+        save.assert_called_once()
+
+    def test_one_site_result_is_visible_before_batch_export(self):
+        item = {'seller_id': 'A1234567892', 'site': 'fr', 'status': 'local_vat',
+                'company': 'New French Store', 'address': 'Paris',
+                'vats': [{'number': 'FR12345678901', 'country': 'FR'}],
+                'checked_at': '2026-10-08T12:00:00+08:00'}
+        self.assertEqual(save_site_result(self.db_path, item), 1)
+        with sqlite3.connect(self.db_path) as db:
+            self.assertEqual(db.execute('SELECT status FROM seller_site_checks WHERE seller_id=?',
+                                        ('A1234567892',)).fetchone()[0], 'local_vat')
+            self.assertEqual(db.execute('SELECT vat_number FROM sellers WHERE seller_id=?',
+                                        ('A1234567892',)).fetchone()[0], 'FR12345678901')
+            self.assertEqual(db.execute('SELECT vat_country FROM seller_vat_evidence WHERE seller_id=?',
+                                        ('A1234567892',)).fetchone()[0], 'FR')
+        from api.store_matrix_view import load_store_matrix
+        self.assertEqual(load_store_matrix(self.db_path, query='A1234567892')['total'], 1)
 
     def test_merge_preserves_original_and_is_idempotent(self):
         report = self.root / 'report'

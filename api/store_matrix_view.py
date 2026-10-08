@@ -78,6 +78,8 @@ def _base_sql(tables: set[str]) -> str:
     keys = "SELECT marketplace,seller_id FROM sellers"
     if checks:
         keys += " UNION SELECT marketplace,seller_id FROM seller_site_checks"
+    if discoveries:
+        keys += " UNION SELECT 'amazon.it' AS marketplace,seller_id FROM seller_discoveries"
     return f"""
         WITH keys AS ({keys}), base AS (
           SELECT k.marketplace,k.seller_id,
@@ -98,7 +100,7 @@ def _base_sql(tables: set[str]) -> str:
             {_column('v','country',vies)} AS vies_country,
             COALESCE(NULLIF(TRIM({_column('c','source_url',checks)}),''),
                      NULLIF(TRIM(s.source_url),''),'') AS source_url,
-            {_column('c','status',checks)} AS status,
+            {"COALESCE(c.status,CASE WHEN d.seller_id IS NOT NULL AND s.seller_id IS NULL THEN 'pending' END)" if checks and discoveries else _column('c','status',checks)} AS status,
             COALESCE({_column('c','checked_at',checks)},s.last_seen_at,'') AS checked_at
           FROM keys k
           LEFT JOIN sellers s ON s.marketplace=k.marketplace AND s.seller_id=k.seller_id

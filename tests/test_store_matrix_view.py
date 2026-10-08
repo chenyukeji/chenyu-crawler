@@ -52,6 +52,16 @@ class StoreMatrixTests(unittest.TestCase):
         self.assertEqual(result['rows'][0]['vats'][1]['vies_name'], 'EXAMPLE TRADING SP Z OO')
         self.assertEqual(load_store_matrix(self.path, query='%')['total'], 0)
 
+    def test_discovered_store_is_visible_before_public_site_check(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO seller_discoveries(seller_id,seller_name,source) VALUES ('A7777777777','New Shop','SellerSprite')")
+        result = load_store_matrix(self.path, query='A7777777777')
+        self.assertEqual(result['total'], 1)
+        row = result['rows'][0]
+        self.assertEqual(row['marketplace'], 'amazon.it')
+        self.assertEqual(row['seller_name'], 'New Shop')
+        self.assertEqual(row['status'], 'pending')
+
     def test_numeric_vat_requires_country_and_preserves_cross_site_country(self):
         with sqlite3.connect(self.path) as db:
             db.executemany('''INSERT INTO sellers(marketplace,seller_id,vat_number)
