@@ -67,6 +67,8 @@
     .table-wrap { overflow-x: auto; }
     .matrix-panel { margin-top: 20px; }
     .collection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    .collection-bar .secondary { background: #fff; color: #2563eb; border: 1px solid #b9cff9; }
+    .collection-bar .secondary:hover { background: #edf4ff; }
     .collection-status { color: #667085; font-size: 13px; }
     .button:disabled { opacity: .6; cursor: wait; }
     .matrix-filters { padding-bottom: 8px; }
@@ -115,7 +117,7 @@
   </div></header>
   <main>
 {% if store_view %}
-    <div class="heading"><div><h1>欧洲店铺税号</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
+    <div class="heading"><div><h1>欧洲店铺税号</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
       <form class="filters matrix-filters" action="/seller-vat" method="get">
@@ -197,6 +199,8 @@
 {% if store_view %}
   <script>
     const collectButton = document.getElementById('collect-stores');
+    const refreshLoginButton = document.getElementById('refresh-sellersprite');
+    let loginPending = false;
     const collectStatus = document.getElementById('collect-status');
     let completedRun = '';
     async function refreshCollection() {
@@ -205,8 +209,8 @@
         if (!response.ok) return;
         const item = (await response.json()).collection;
         const active = ['queued', 'discovering', 'checking'].includes(item.state);
-        collectButton.disabled = active;
-        if (item.state !== 'idle') {
+        collectButton.disabled = active || loginPending;
+        if (!loginPending && item.state !== 'idle') {
           const progress = [];
           if (item.pages_checked) progress.push(`已扫 ${item.pages_checked} 页`);
           if (item.stores_found) progress.push(`发现 ${item.stores_found} 家店铺`);
@@ -234,6 +238,33 @@
       } catch (_) { collectStatus.textContent = '连接失败，请稍后重试'; }
       await refreshCollection();
     });
+    refreshLoginButton.addEventListener('click', async () => {
+      refreshLoginButton.disabled = true;
+      collectStatus.textContent = '正在刷新卖家精灵登录…';
+      try {
+        const response = await fetch('/seller-vat/login/start', {method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, credentials: 'same-origin'});
+        const result = await response.json();
+        collectStatus.textContent = result.message || result.error || '登录启动失败';
+        loginPending = response.ok;
+      } catch (_) { collectStatus.textContent = '连接失败，请稍后重试'; }
+      if (!loginPending) refreshLoginButton.disabled = false;
+    });
+    async function refreshLoginState() {
+      if (!loginPending) return;
+      try {
+        const response = await fetch('/seller-vat/login/status', {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+        if (!response.ok) return;
+        const login = (await response.json()).login;
+        collectStatus.textContent = login.message || '正在刷新卖家精灵登录…';
+        if (['logged_in', 'failed', 'busy'].includes(login.state)) {
+          loginPending = false;
+          refreshLoginButton.disabled = false;
+          refreshCollection();
+        }
+      } catch (_) { collectStatus.textContent = '登录状态暂时无法读取'; }
+    }
+    setInterval(refreshLoginState, 5000);
     refreshCollection();
     setInterval(refreshCollection, 5000);
   </script>
