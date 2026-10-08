@@ -58,13 +58,15 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now chenyu-seller-vat.service
 ```
 
-首次登录须由使用该服务的 `ubuntu` 用户在服务器图形会话中执行；无图形会话时可使用远程桌面或带 X11 转发的 SSH。登录程序会打开浏览器，人工完成卖家精灵登录：
+管理员先在主网站 `https://106.53.214.153:3000/dashboard?view=staff` 的“员工与权限”配置卖家精灵账号；密码只存于 Git 仓库外的私有配置文件，页面不会回显。然后在 HTTPS 税号管理页 `https://106.53.214.153:8100/seller-vat` 点击“使用已配置账号登录”。服务端读取最新私有配置，通过一次性进程管道交给无界面 Chromium 完成网页登录，不把密码写入数据库、命令行参数或日志；浏览器登录会话保存在采集服务使用的专用资料目录。登录成功后服务会在约 10 秒内开始首次采集，之后每小时自动运行；也可点击“立即启动采集”。按钮请求由现有服务执行，不会与登录或另一轮采集并发。卖家精灵要求额外验证码时，页面会提示登录未完成。
+
+需要手工命令行登录时，可在有图形会话的服务器以同一个 `ubuntu` 用户运行：
 
 ```bash
 .venv/bin/python run_seller_vat.py login --channel chromium --login-wait 600
 ```
 
-服务会在登录资料就绪后约一分钟内开始采集。网页显示“等待登录”时，先检查服务器是否有可用图形会话和登录是否成功。可用 `systemctl status chenyu-seller-vat.service` 查看服务，`journalctl -u chenyu-seller-vat.service -n 100 --no-pager` 查看日志。停止自动采集使用 `sudo systemctl disable --now chenyu-seller-vat.service`。
+可用 `systemctl status chenyu-seller-vat.service` 查看服务，`journalctl -u chenyu-seller-vat.service -n 100 --no-pager` 查看日志。停止自动采集使用 `sudo systemctl disable --now chenyu-seller-vat.service`。
 
 每轮以开始时间创建独立批次，旧批次暂不自动删除；应监控 `data/seller_vat.sqlite3` 和 `outputs/seller-vat/` 的磁盘占用。明确受限、验证码或网站界面变化时，采集保留已有结果并记录原因，不尝试绕过验证。
 
@@ -88,4 +90,6 @@ sudo systemctl enable --now chenyu-seller-vat.service
 
 ## Linux服务器
 
-本模块可在Linux上运行，但首次网页登录需有桌面或远程桌面。在同一服务器用户下运行 `python run_seller_vat.py login --channel chromium`；成功后使用 `python run_seller_vat.py run --channel chromium --headless`。账号登录状态保留在该服务器的专用目录。采集可通过独立命令或每小时后台服务运行；管理员可在管理网页的“店铺税号”页面只读查看数据库中的批次、商品、店铺及税号。不要在GitHub Actions运行带会员会话的全量采集。
+本模块在 Linux 上可通过 HTTPS 页面使用管理员已配置的账号密码登录，无需图形桌面。服务器上的公网 IP HTTPS 配置参考 `deploy/chenyu-crawler-https.nginx`，网页服务监听本地 `127.0.0.1:8101`；旧的 HTTP 8100 地址由 Nginx 自动跳转到 HTTPS。公网 IP 证书使用支持 `--ip-address` 的 Certbot 5.4+ 及 shortlived 配置申请，证书有效期短，必须安装 `deploy/chenyu-ip-cert-renew.service` 和 `deploy/chenyu-ip-cert-renew.timer` 定时续期。证书签发需要端口 80 可访问其 webroot 验证目录。
+
+采集可通过独立命令或每小时后台服务运行；管理员可在“店铺税号”页面查看数据库记录并手动启动采集。不要在 GitHub Actions 运行带会员会话的全量采集。

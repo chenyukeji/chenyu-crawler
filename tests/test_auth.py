@@ -26,11 +26,13 @@ class FakeResponse:
         return self.body
 
 
-async def request_app(path, method="GET", fields=None, headers=None):
-    body = urlencode(fields or {}).encode()
+async def request_app(path, method="GET", fields=None, headers=None, json_body=None):
+    body = json.dumps(json_body).encode() if json_body is not None else urlencode(fields or {}).encode()
     request_headers = [(b"host", b"127.0.0.1:8100")]
     request_headers.extend((key.lower().encode(), value.encode()) for key, value in (headers or {}).items())
-    if fields is not None:
+    if json_body is not None:
+        request_headers.append((b"content-type", b"application/json"))
+    elif fields is not None:
         request_headers.append((b"content-type", b"application/x-www-form-urlencoded"))
     scope = {
         "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",

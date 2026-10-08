@@ -20,7 +20,8 @@ TZ = timezone(timedelta(hours=8))
 ASIN = re.compile(r"\bB[A-Z0-9]{9}\b")
 ASIN_VALUE = re.compile(r'^[A-Z0-9]{10}$')
 SELLER = re.compile(r"^[A-Z0-9]{8,20}$")
-DEFAULT_URL = "https://cn.sellersprite.com/v3/"
+DEFAULT_URL = "https://www.sellersprite.com/v3/product-research"
+SESSION_FILE = "sellersprite-session.json"
 LABELS = {
     "company": re.compile(r"^(?:Ragione sociale|Nome (?:dell.?azienda|azienda|impresa)|Business name|Legal business name|Nombre de empresa|Nom commercial|Nom de l'entreprise|Unternehmensname)\s*[:：]", re.I),
     "vat": re.compile(r"^(?:Partita IVA|Numero (?:di partita )?IVA|Numero di identificazione IVA|VAT(?: registration)? (?:number|ID)|Tax (?:number|ID)|Número de IVA|Num[eé]ro (?:de TVA|TVA)|Umsatzsteuer[^:]*|USt[^:]*)\s*[:：]", re.I),
@@ -91,6 +92,41 @@ def save_json(path, value):
     tmp.replace(path)
 
 
+def _sellersprite_cookie(cookie):
+    domain = str(cookie.get("domain", "")).lstrip(".").lower()
+    return domain == "sellersprite.com" or domain.endswith(".sellersprite.com")
+
+
+def save_sellersprite_session(context, profile, account):
+    """Persist only SellerSprite cookies in the private browser profile."""
+    path = profile / SESSION_FILE
+    cookies = [cookie for cookie in context.cookies() if _sellersprite_cookie(cookie)]
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.chmod(temporary, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump({"account": account, "cookies": cookies}, stream, ensure_ascii=False)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def restore_sellersprite_session(context, profile, account=""):
+    path = profile / SESSION_FILE
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if account and state.get("account") != account:
+            return
+        cookies = [cookie for cookie in state.get("cookies", [])
+                   if _sellersprite_cookie(cookie)
+                   and (cookie.get("expires", -1) <= 0 or cookie["expires"] > time.time())]
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return
+    if cookies:
+        context.add_cookies(cookies)
+
+
 def seller_id_from_url(url):
     parsed = urlparse(url)
     if parsed.hostname not in {"amazon.it", "www.amazon.it"}:
@@ -142,6 +178,13 @@ def parse_seller(html):
 
 def check_page(page, amazon=False):
     body = page.locator("body").inner_text(timeout=15000)
+    # SellerSprite renders "未登录" briefly before its client-side session check finishes.
+    if not amazon and "/user/login" not in page.url and re.search(r"未登录\s*(游客)?", body):
+        for _ in range(12):
+            page.wait_for_timeout(1000)
+            body = page.locator("body").inner_text(timeout=15000)
+            if not re.search(r"未登录\s*(游客)?", body):
+                break
     lower = body.lower()
     markers = ("enter the characters you see below", "robot check", "inserisci i caratteri", "unauthorized ai agent", "unusual traffic", "输入验证码", "滑块验证", "安全验证", "验证您是真人")
     if any(m in lower for m in markers) or page.locator("input#captchacharacters").count():
@@ -240,15 +283,25 @@ def select_dropdown(page, current_pattern, option_pattern):
 
 def configure_research(page):
     check_page(page)
-    # Reset avoids accidentally inheriting category/sales filters from old sessions.
+    # The current product-research page renders marketplace and month as buttons.
+    # Wait for hydration before resetting: the initial HTML is only a marketing shell.
+    page.get_by_role("button", name="意大利", exact=True).wait_for(timeout=30000)
     page.get_by_text("重置条件", exact=True).first.click()
-    select_dropdown(page, r"美国|日本|英国|德国|法国|意大利|西班牙|加拿大|印度|墨西哥", r"^意大利(?:站)?$")
-    select_dropdown(page, r"最近30天|^20\d{2}-\d{2}$", r"^最近30天$")
-    # Several inputs say 不限; choose only the one whose menu contains 近30天.
+    site = page.get_by_role("button", name="意大利", exact=True)
+    site.click()
+    if "active" not in (site.get_attribute("class") or ""):
+        raise StopCollection("意大利站筛选未生效")
+    month = page.get_by_role("button", name="最近30天", exact=True)
+    month.click()
+    if "active" not in (month.get_attribute("class") or ""):
+        raise StopCollection("最近30天统计周期未生效")
+    # Several controls say 不限; choose only the one whose menu offers 近30天.
     controls = page.locator("input[readonly]:visible")
     for i in range(controls.count()):
         control = controls.nth(i)
-        if control.input_value().strip() != "不限":
+        if control.input_value().strip() not in ("", "不限"):
+            continue
+        if control.get_attribute("placeholder") not in ("不限", None):
             continue
         control.click()
         option = page.locator(".el-select-dropdown__item:visible").filter(has_text=re.compile(r"^近30天$")).first
@@ -588,9 +641,12 @@ def main(argv=None):
                 channel=None if args.channel == "chromium" else args.channel,
                 headless=args.headless and args.action != "login", viewport={"width": 1440, "height": 1000})
             try:
+                if args.action != "login":
+                    from seller_vat_login import default_account
+                    restore_sellersprite_session(context, args.profile, default_account())
                 page = context.pages[0] if context.pages else context.new_page()
                 if args.action == "login":
-                    page.goto("https://cn.sellersprite.com/cn/w/user/login", wait_until="domcontentloaded", timeout=60000)
+                    page.goto("https://www.sellersprite.com/cn/w/user/login", wait_until="domcontentloaded", timeout=60000)
                     print("请在打开的浏览器中登录卖家精灵。登录成功后回到此终端按 Enter。")
                     if args.login_wait:
                         print('正在等待浏览器人工登录；请登录后进入选产品页面。', flush=True)

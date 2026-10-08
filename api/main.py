@@ -28,6 +28,9 @@ from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
 from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
+import seller_vat_login
+from seller_vat_loop import TRIGGER, profile_ready
+from crawler.seller_vat import collection_lock_held, save_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -409,7 +412,40 @@ def seller_vat_page(
         SELLER_VAT_DB_PATH, run_id=run_id, tab=tab,
         query=q, status=status, page=page,
     )
-    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), **data})
+    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), "default_account": seller_vat_login.default_account(), **data})
+
+
+def _secure_vat_action(request: Request):
+    if request.url.scheme != "https" and request.headers.get("host", "").split(":")[0] not in {"127.0.0.1", "localhost"}:
+        return JSONResponse({"error": "请通过 HTTPS 访问登录和采集操作"}, status_code=403)
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        return JSONResponse({"error": "无效的操作请求"}, status_code=403)
+    return None
+
+
+@app.post("/seller-vat/login/start")
+def seller_vat_login_start(request: Request):
+    if rejection := _secure_vat_action(request):
+        return rejection
+    started, message = seller_vat_login.start_from_config()
+    return JSONResponse({"started": started, "message": message}, status_code=202 if started else 409)
+
+
+@app.get("/seller-vat/login/status")
+def seller_vat_login_status():
+    return {"login": seller_vat_login.status(), "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH)}
+
+
+@app.post("/seller-vat/run")
+def seller_vat_run(request: Request):
+    if rejection := _secure_vat_action(request):
+        return rejection
+    if not profile_ready():
+        return JSONResponse({"error": "请先登录卖家精灵"}, status_code=409)
+    if collection_lock_held(seller_vat_login.LOCK):
+        return JSONResponse({"error": "浏览器正在登录或采集，请稍后重试"}, status_code=409)
+    save_json(TRIGGER, {"requested_at": datetime.now(SCHEDULE_TIMEZONE).isoformat(timespec="seconds")})
+    return JSONResponse({"message": "已提交采集请求，后台即将启动"}, status_code=202)
 
 
 @app.post("/run")

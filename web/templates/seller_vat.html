@@ -31,6 +31,14 @@
     .scope { padding: 7px 10px; border-radius: 6px; color: #47618a; background: #eaf1ff; font-size: 12px; white-space: nowrap; }
     .schedule-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 18px; padding: 12px 16px; border: 1px solid #dce8fb; border-radius: 8px; background: #f0f6ff; color: #385171; font-size: 13px; }
     .schedule-strip strong { color: #175aa8; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+    .actions .secondary { background: #fff; color: #2563eb; border: 1px solid #b9cff9; }
+    .actions .secondary:hover { background: #edf4ff; }
+    .actions button:disabled { opacity: .5; cursor: wait; }
+    .login-panel { display: none; padding: 16px; margin-top: 14px; background: #fff; border: 1px solid #dce8fb; border-radius: 8px; }
+    .login-panel.open { display: block; }
+    .login-panel p { margin: 0; color: #526176; font-size: 13px; }
+    .action-note { color: #526176; font-size: 13px; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
     .stat, .panel { background: #fff; border: 1px solid #e3e7ec; border-radius: 8px; }
     .stat { padding: 14px 18px; }
@@ -88,8 +96,14 @@
     <form class="logout-form" method="post" action="/logout"><button class="logout-button" type="submit">退出</button></form>
   </div></header>
   <main>
-    <div class="heading"><div><h1>店铺税号</h1><p>查看意大利站近 30 天上架商品对应的 BuyBox 店铺及其公开商业信息。</p></div><span class="scope">只读 · 数据随采集更新</span></div>
+    <div class="heading"><div><h1>店铺税号</h1><p>查看意大利站近 30 天上架商品对应的 BuyBox 店铺及其公开商业信息。</p></div><span class="scope">数据库随采集更新</span></div>
     <div class="schedule-strip" role="status"><strong>每小时自动采集</strong><span>{{ scheduler.message }}</span>{% if scheduler.next_run_at %}<span>下次：{{ scheduler.next_run_at.replace('T', ' ')[:19] }}</span>{% endif %}{% if scheduler.last_run_id %}<span>最近批次：{{ scheduler.last_run_id }}</span>{% endif %}</div>
+    <div class="actions">
+      <button class="button secondary" id="login-start" type="button">使用已配置账号登录</button>
+      <button class="button" id="vat-run" type="button">立即启动采集</button>
+      <span class="action-note" id="action-note" role="status">先登录卖家精灵；登录成功后每小时自动采集，也可立即启动。</span>
+    </div>
+    <div class="login-panel" id="login-panel"><p id="login-message">{% if default_account %}已配置账号：{{ default_account }}。点击上方按钮可刷新登录会话。{% else %}尚未配置卖家精灵账号。{% endif %}</p><p style="margin-top:10px"><a href="https://106.53.214.153:3000/dashboard?view=staff">前往“员工与权限”配置账号 ↗</a></p></div>
     <section class="stats" aria-label="当前批次概览">
       <article class="stat"><div class="stat-label">商品记录</div><div class="stat-value">{{ summary.products }}</div><div class="stat-note">当前批次</div></article>
       <article class="stat"><div class="stat-label">BuyBox 店铺</div><div class="stat-value">{{ summary.sellers }}</div><div class="stat-note">有卖家 ID 的店铺</div></article>
@@ -134,5 +148,45 @@
       {% else %}<div class="empty"><strong>{{ "数据库读取失败" if error else "还没有税号采集数据" }}</strong><p>{{ error or "运行独立的税号采集程序后，已入库的商品、店铺和税号会显示在这里。" }}</p></div>{% endif %}
     </section>
   </main>
+  <script>
+    const loginButton = document.getElementById('login-start');
+    const runButton = document.getElementById('vat-run');
+    const panel = document.getElementById('login-panel');
+    const message = document.getElementById('login-message');
+    const note = document.getElementById('action-note');
+    async function sendAction(path, button) {
+      button.disabled = true;
+      try {
+        const response = await fetch(path, {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, credentials: 'same-origin'});
+        const data = await response.json();
+        note.textContent = data.message || data.error || '操作失败';
+        return response.ok;
+      } catch (_) { note.textContent = '连接失败，请稍后重试'; return false; }
+      finally { button.disabled = false; }
+    }
+    loginButton.addEventListener('click', async () => {
+      panel.classList.add('open');
+      message.textContent = '正在登录卖家精灵…';
+      if (!await sendAction('/seller-vat/login/start', loginButton)) message.textContent = note.textContent;
+    });
+    runButton.addEventListener('click', async () => {
+      if (await sendAction('/seller-vat/run', runButton)) setTimeout(() => location.reload(), 6000);
+    });
+    async function refreshLogin() {
+      try {
+        const response = await fetch('/seller-vat/login/status', {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+        if (!response.ok) return;
+        const data = await response.json();
+        const state = data.login.state;
+        if (['starting', 'logged_in', 'failed', 'busy'].includes(state)) {
+          panel.classList.add('open');
+          message.textContent = data.login.message;
+          if (state === 'logged_in') note.textContent = '登录成功。每小时自动采集已就绪，也可以立即启动。';
+        }
+      } catch (_) {}
+    }
+    refreshLogin();
+    setInterval(refreshLogin, 5000);
+  </script>
 </body>
 </html>

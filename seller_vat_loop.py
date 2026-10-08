@@ -11,19 +11,30 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from crawler.seller_vat import ROOT, TZ, collection_lock_held, save_json
+from crawler.seller_vat import ROOT, SESSION_FILE, TZ, collection_lock_held, save_json
+from seller_vat_login import default_account
 
 PROFILE = ROOT / "data" / "sellersprite-profile"
 STATUS = ROOT / "data" / "seller-vat-scheduler.json"
+TRIGGER = ROOT / "data" / "seller-vat-trigger.json"
 OUTPUTS = ROOT / "outputs" / "seller-vat"
 INTERVAL = timedelta(hours=1)
-WAIT_FOR_LOGIN_SECONDS = 60
+WAIT_FOR_LOGIN_SECONDS = 10
 FAILURE_BACKOFF_SECONDS = 900
 
 
 def profile_ready(path: Path = PROFILE) -> bool:
     """A missing or empty browser profile cannot contain a login session."""
-    return path.is_dir() and any(path.iterdir())
+    if not path.is_dir() or not any(path.iterdir()):
+        return False
+    account = default_account()
+    if not account:
+        return False
+    try:
+        session = json.loads((path / SESSION_FILE).read_text(encoding="utf-8"))
+        return session.get("account") == account and bool(session.get("cookies"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def profile_stamp(path: Path = PROFILE) -> tuple:
@@ -36,8 +47,15 @@ def profile_stamp(path: Path = PROFILE) -> tuple:
         path / "Default" / "Network" / "Cookies",
         path / "Default" / "Network" / "Cookies-wal",
     )
-    return tuple((str(candidate.relative_to(path)), candidate.stat().st_mtime_ns)
-                 for candidate in candidates if candidate.is_file())
+    stamp = tuple((str(candidate.relative_to(path)), candidate.stat().st_mtime_ns)
+                  for candidate in candidates if candidate.is_file())
+    login_status = ROOT / "data" / "seller-vat-login.json"
+    try:
+        if json.loads(login_status.read_text(encoding="utf-8")).get("state") == "logged_in":
+            stamp += (("browser_login_success", login_status.stat().st_mtime_ns),)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return stamp
 
 
 def run_id_at(started: datetime, folder: Path = OUTPUTS) -> str:
@@ -88,7 +106,7 @@ def main(argv=None) -> int:
     signal.signal(signal.SIGINT, stop)
     while not stopping.is_set():
         if not profile_ready():
-            _status("waiting_for_login", message="服务器尚无卖家精灵网页登录资料", last_run_id=last_run_id)
+            _status("waiting_for_login", message="请在员工与权限配置账号并刷新税号页登录会话", last_run_id=last_run_id)
             if args.once:
                 return 0
             stopping.wait(WAIT_FOR_LOGIN_SECONDS)
@@ -108,12 +126,15 @@ def main(argv=None) -> int:
             continue
         login_failed_stamp = None
         now = datetime.now(TZ)
-        if next_run_at and now < next_run_at:
+        triggered = TRIGGER.exists()
+        if next_run_at and now < next_run_at and not triggered:
             _status("scheduled", message="等待下一轮采集", next_run_at=next_run_at.isoformat(timespec="seconds"), last_run_id=last_run_id)
             if args.once:
                 return 0
-            stopping.wait(min(WAIT_FOR_LOGIN_SECONDS, (next_run_at - now).total_seconds()))
+            stopping.wait(min(5, (next_run_at - now).total_seconds()))
             continue
+        if triggered:
+            TRIGGER.unlink(missing_ok=True)
         started = now
         run_id = run_id_at(started)
         last_run_id = run_id

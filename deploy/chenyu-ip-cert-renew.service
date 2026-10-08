@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew Chenyu IP HTTPS certificate
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/.venvs/chenyu-certbot/bin/certbot renew --non-interactive --quiet --deploy-hook "systemctl reload nginx"

@@ -106,3 +106,58 @@ class SellerVatPageTests(unittest.TestCase):
         self.assertIn('店铺税号', html)
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', html)
         self.assertNotIn('<script>alert(1)</script>', html)
+
+class SellerVatActionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_login_start_requires_admin_and_ajax_request(self):
+        from tests.test_auth import request_app
+        headers = {'accept': 'application/json', 'x-requested-with': 'XMLHttpRequest'}
+        with patch('api.main.seller_vat_login.start_from_config') as start:
+            status, _, _ = await request_app('/seller-vat/login/start', 'POST', headers=headers)
+            self.assertEqual(status, 401)
+            start.assert_not_called()
+            with patch('api.main.verify_admin_session', return_value=True):
+                status, _, _ = await request_app('/seller-vat/login/start', 'POST', headers={
+                    'cookie': 'chenyu_session=test', 'accept': 'application/json',
+                })
+                self.assertEqual(status, 403)
+                start.assert_not_called()
+                start.return_value = (True, '正在登录卖家精灵')
+                status, _, body = await request_app('/seller-vat/login/start', 'POST', headers={
+                    **headers, 'cookie': 'chenyu_session=test',
+                })
+                self.assertEqual(status, 202)
+                self.assertIn('正在登录卖家精灵'.encode(), body)
+                start.assert_called_once_with()
+
+    async def test_run_button_requires_profile_and_writes_trigger(self):
+        import json
+        from tests.test_auth import request_app
+        headers = {'cookie': 'chenyu_session=test', 'accept': 'application/json',
+                   'x-requested-with': 'XMLHttpRequest'}
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('api.main.verify_admin_session', return_value=True), \
+             patch('api.main.TRIGGER', Path(directory) / 'trigger.json'), \
+             patch('api.main.profile_ready', side_effect=[False, True]), \
+             patch('api.main.collection_lock_held', return_value=False):
+            status, _, _ = await request_app('/seller-vat/run', 'POST', headers=headers)
+            self.assertEqual(status, 409)
+            status, _, _ = await request_app('/seller-vat/run', 'POST', headers=headers)
+            self.assertEqual(status, 202)
+            self.assertIn('requested_at', json.loads((Path(directory) / 'trigger.json').read_text()))
+
+class SellerVatCredentialTransportTests(unittest.TestCase):
+    def test_credentials_are_piped_to_browser_without_persisting_in_status(self):
+        import json
+        from unittest.mock import Mock
+        import seller_vat_login
+        fake = Mock()
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(seller_vat_login, 'STATUS', Path(directory) / 'status.json'), \
+             patch('crawler.seller_vat.collection_lock_held', return_value=False), \
+             patch.object(seller_vat_login.subprocess, 'Popen', return_value=fake) as popen:
+            self.assertEqual(seller_vat_login.start('demo@example.com', 'sample-secret')[0], True)
+            self.assertNotIn('sample-secret', repr(popen.call_args))
+            self.assertEqual(json.loads(fake.stdin.write.call_args.args[0]), {
+                'account': 'demo@example.com', 'password': 'sample-secret',
+            })
+            self.assertNotIn('sample-secret', (Path(directory) / 'status.json').read_text())

@@ -18,3 +18,7 @@ data/browser-profile/
 data/seller-vat-scheduler.json
 outputs/seller-vat/
 tmp*/
+data/seller-vat-login.json
+data/seller-vat-trigger.json
+
+data/seller-vat-credentials.json
