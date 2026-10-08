@@ -57,6 +57,7 @@ class BrowserSettings:
     timeout_ms: int = 60_000
     between_sources_seconds: float = 3.0
     between_pages_seconds: float = 0.0
+    page_settle_seconds: float = 10.0
     scroll_steps: int = 12
     scroll_pause_ms: int = 700
 
@@ -69,6 +70,9 @@ class BrowserSettings:
         page_delay = float(payload.get("between_pages_seconds", defaults.between_pages_seconds))
         if not 0 <= page_delay <= 300:
             raise ValueError("between_pages_seconds must be between 0 and 300")
+        settle_delay = float(payload.get("page_settle_seconds", defaults.page_settle_seconds))
+        if not 0 <= settle_delay <= 25:
+            raise ValueError("page_settle_seconds must be between 0 and 25")
         return cls(
             channel=str(payload.get("channel", defaults.channel)),
             headless=bool(payload.get("headless", defaults.headless)),
@@ -76,6 +80,7 @@ class BrowserSettings:
             timeout_ms=int(payload.get("timeout_ms", defaults.timeout_ms)),
             between_sources_seconds=float(payload.get("between_sources_seconds", defaults.between_sources_seconds)),
             between_pages_seconds=page_delay,
+            page_settle_seconds=settle_delay,
             scroll_steps=int(payload.get("scroll_steps", defaults.scroll_steps)),
             scroll_pause_ms=int(payload.get("scroll_pause_ms", defaults.scroll_pause_ms)),
         )
@@ -352,8 +357,8 @@ def collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings,
         raise PageCollectionError(str(exc), retry_state, parse_error=isinstance(exc, ParseError)) from exc
 
 
-def _wait_for_page_settle(page: Any, *, max_polls: int = 60) -> dict:
-    """Require document load and three seconds of unchanged product content.
+def _wait_for_page_settle(page: Any, *, minimum_wait_ms: int = 0, max_polls: int = 60) -> dict:
+    """Require a minimum observation period and three seconds of unchanged products.
 
     A finite deadline avoids hanging on slow third-party resources. Callers
     retain parsed products but must not paginate when the deadline is reached.
@@ -372,7 +377,7 @@ def _wait_for_page_settle(page: Any, *, max_polls: int = 60) -> dict:
             stable_polls += 1
         else:
             stable_polls = 0
-        if stable_polls >= 6:
+        if stable_polls >= 6 and poll * 500 >= minimum_wait_ms:
             return {"settled": True, "ready_state": last_state['ready'], "waited_ms": poll * 500}
         previous = last_state
         if poll + 1 < max_polls:
@@ -427,7 +432,9 @@ def _collect_source(page: Any, source: dict[str, Any], settings: BrowserSettings
             previous_count = count
             page.mouse.wheel(0, 850)
             page.wait_for_timeout(settings.scroll_pause_ms)
-        settlement = _wait_for_page_settle(page)
+        settlement = _wait_for_page_settle(
+            page, minimum_wait_ms=int(settings.page_settle_seconds * 1000)
+        )
         _check_page_access(page, response, stage="滚动后", page_number=pages_visited)
         cards = page.locator("div.zg-grid-general-faceout")
         if cards.count() == 0:

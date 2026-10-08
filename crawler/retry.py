@@ -38,7 +38,8 @@ def collect_with_retry(page: Any, source: dict, settings: BrowserSettings, limit
 
     environment = {"process": process_context(), "channel": settings.channel, "headless": settings.headless,
                    "between_sources_seconds": settings.between_sources_seconds,
-                   "between_pages_seconds": settings.between_pages_seconds}
+                   "between_pages_seconds": settings.between_pages_seconds,
+                   "page_settle_seconds": settings.page_settle_seconds}
     try:
         environment["browser_version"] = str(page.context.browser.version)
         environment["navigator"] = page.evaluate("({userAgent:navigator.userAgent, webdriver:navigator.webdriver, language:navigator.language})")

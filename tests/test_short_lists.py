@@ -78,13 +78,40 @@ class ShortListTests(unittest.TestCase):
                         body += '<ul class="a-pagination"><li class="a-last"><a href="?pg=2">Next</a></li></ul>'
                     route.fulfill(status=200, content_type='text/html', body=body)
                 context.route('**/*', respond)
-                result = collect_source(page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                result = collect_source(page, self.source, BrowserSettings(scroll_pause_ms=0, page_settle_seconds=0), 100,
                                         open_next_page=context.new_page)
                 self.assertEqual(result['status'], 'ok')
                 self.assertEqual(result['target_items'], 99)
                 self.assertEqual(len(result['items']), 99)
                 self.assertTrue(result['page_diagnostics'][-1]['load_stable'])
                 self.assertEqual(len(visited), 2)
+            finally:
+                browser.close()
+
+
+    def test_collects_product_added_after_initial_stability(self):
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                context = browser.new_context()
+                page = context.new_page()
+                first = ('<div class="zg-grid-general-faceout"><span class="zg-bdg-text">#1</span>'
+                         '<a href="/dp/B000000001">Product 1</a>'
+                         '<img alt="Product 1" src="https://example.test/1.png"></div>')
+                second = ('<div class="zg-grid-general-faceout"><span class="zg-bdg-text">#2</span>'
+                          '<a href="/dp/B000000002">Product 2</a>'
+                          '<img alt="Product 2" src="https://example.test/2.png"></div>')
+                body = first + f'<script>setTimeout(() => document.body.insertAdjacentHTML("beforeend", {second!r}), 4500)</script>'
+                context.route('**/*', lambda route: route.fulfill(
+                    status=200, content_type='text/html', body=body,
+                ) if route.request.resource_type == 'document' else route.abort())
+                result = collect_source(
+                    page, self.source, BrowserSettings(scroll_pause_ms=0, page_settle_seconds=5),
+                    2, open_next_page=context.new_page,
+                )
+                self.assertEqual([item['rank'] for item in result['items']], [1, 2])
+                self.assertEqual(result['status'], 'ok')
+                self.assertGreaterEqual(result['page_diagnostics'][0]['load_wait']['waited_ms'], 7_000)
             finally:
                 browser.close()
 
@@ -101,6 +128,17 @@ class LoadingWaitTests(unittest.TestCase):
         self.assertTrue(result['settled'])
         self.assertEqual(result['waited_ms'], 8500)
         self.assertEqual(page.evaluate.call_count, 18)
+
+    def test_minimum_wait_catches_late_frontend_update(self):
+        from unittest.mock import MagicMock
+        from crawler.amazon import _wait_for_page_settle
+        page = MagicMock()
+        page.evaluate.side_effect = ([{'ready': 'complete', 'products': ['a']}] * 8
+                                     + [{'ready': 'complete', 'products': ['a', 'b']}] * 7)
+        result = _wait_for_page_settle(page, minimum_wait_ms=5_000)
+        self.assertTrue(result['settled'])
+        self.assertEqual(result['waited_ms'], 7_000)
+        self.assertEqual(page.evaluate.call_count, 15)
 
     def test_timeout_is_bounded_and_not_settled(self):
         from unittest.mock import MagicMock
@@ -123,5 +161,11 @@ class PageDelayConfigTests(unittest.TestCase):
             self.assertEqual(BrowserSettings.from_file(path).between_pages_seconds,60)
             for value in (-1,301,'NaN'):
                 path.write_text(json.dumps({'between_pages_seconds':value}))
+                with self.assertRaises(ValueError):
+                    BrowserSettings.from_file(path)
+            path.write_text(json.dumps({'page_settle_seconds': 12}))
+            self.assertEqual(BrowserSettings.from_file(path).page_settle_seconds, 12)
+            for value in (-1, 26, 'NaN'):
+                path.write_text(json.dumps({'page_settle_seconds': value}))
                 with self.assertRaises(ValueError):
                     BrowserSettings.from_file(path)

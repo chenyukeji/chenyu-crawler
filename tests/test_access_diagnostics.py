@@ -69,7 +69,7 @@ class AccessDiagnosticsTests(unittest.TestCase):
                 context.route('**/*', respond)
                 source = dict(marketplace='US', category='beauty', url='https://www.amazon.com/gp/new-releases/beauty')
                 with self.assertRaises(AccessControlBlocked) as caught:
-                    collect_with_retry(page, source, BrowserSettings(scroll_pause_ms=0), 100, Path(tmp),
+                    collect_with_retry(page, source, BrowserSettings(scroll_pause_ms=0, page_settle_seconds=0), 100, Path(tmp),
                                        open_next_page=context.new_page)
                 self.assertEqual(len(calls), 2)
                 self.assertEqual(len(caught.exception.partial_snapshot['items']), 50)

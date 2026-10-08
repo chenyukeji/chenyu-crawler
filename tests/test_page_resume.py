@@ -58,7 +58,7 @@ class PageResumeTests(unittest.TestCase):
     def collect(self):
         with patch('crawler.retry.time.sleep'):
             return collect_with_retry(
-                self.page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                self.page, self.source, BrowserSettings(scroll_pause_ms=0, page_settle_seconds=0), 100,
                 self.path, open_next_page=self.context.new_page,
             )
 
@@ -91,7 +91,7 @@ class PageResumeTests(unittest.TestCase):
 
         with patch('crawler.retry.time.sleep'):
             result = collect_with_retry(
-                self.page, self.source, BrowserSettings(scroll_pause_ms=0), 100,
+                self.page, self.source, BrowserSettings(scroll_pause_ms=0, page_settle_seconds=0), 100,
                 self.path, open_next_page=open_next_page,
             )
         self.assertEqual(result['status'], 'ok')
