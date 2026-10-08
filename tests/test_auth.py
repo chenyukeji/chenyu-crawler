@@ -85,6 +85,15 @@ class WebsiteAuthContractTests(unittest.TestCase):
 
 
 class CrawlerAccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_brand_favicon_is_available_before_login(self):
+        status, headers, body = await request_app("/favicon.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["content-type"], "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+        status, _, login_page = await request_app("/login")
+        self.assertEqual(status, 200)
+        self.assertIn(b'href="/favicon.png"', login_page)
+
     async def test_unauthenticated_pages_and_apis_are_blocked(self):
         for path in ("/", "/today", "/seller-vat"):
             status, headers, _ = await request_app(path)

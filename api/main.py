@@ -8,7 +8,7 @@ from threading import Thread
 from urllib.parse import quote
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
@@ -59,13 +59,18 @@ app = FastAPI(
 templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 
 
+@app.get("/favicon.png", include_in_schema=False)
+def favicon():
+    return FileResponse(ROOT / "web" / "static" / "favicon.png", media_type="image/png")
+
+
 def safe_next_path(value: str) -> str:
     return value if value in {"/today", "/seller-vat"} else "/"
 
 
 @app.middleware("http")
 async def require_crawler_admin(request: Request, call_next):
-    if request.url.path == "/login":
+    if request.url.path in {"/login", "/favicon.png"}:
         return await call_next(request)
     session = request.cookies.get(SESSION_COOKIE, "")
     if not await run_in_threadpool(verify_admin_session, session):
