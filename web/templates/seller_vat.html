@@ -91,6 +91,7 @@
     .matrix-table td { max-width: 300px; overflow-wrap: anywhere; }
     .matrix-table td:nth-child(2) { min-width: 170px; }
     .matrix-table td:nth-child(4) { min-width: 200px; }
+    .matrix-table td:nth-child(5) { min-width: 230px; }
     .site-pill { display: inline-block; min-width: 32px; padding: 4px 7px; border-radius: 5px; background: #eaf1ff; color: #1d4ed8; font-size: 11px; font-weight: 700; text-align: center; }
     .matrix-vats { display: grid; gap: 7px; }
     .matrix-vat { padding-bottom: 6px; border-bottom: 1px solid #edf0f4; }
@@ -143,13 +144,13 @@
       <p class="matrix-hint">默认显示最新核查结果；新发现店铺可能仍在等待核查。历史数据可切换“全部历史记录”。</p>
       <div class="table-head"><span>匹配 {{ '{:,}'.format(store_view.total) }} 条店铺站点记录 · 第 {{ store_view.page }} / {{ store_view.pages }} 页</span><span>每页 50 条<span class="scroll-hint"> · 可左右滑动</span></span></div>
       {% if store_view.rows %}<div class="table-wrap"><table class="matrix-table">
-        <thead><tr><th>站点</th><th>店铺</th><th>公司名称</th><th>税号与 VIES 公司</th><th>公司地址</th><th>核查与来源</th></tr></thead>
+        <thead><tr><th>站点</th><th>店铺</th><th>公司名称</th><th>公开税号</th><th>VIES 公司名称</th><th>核查与来源</th></tr></thead>
         <tbody>{% for row in store_view.rows %}<tr>
           <td><span class="site-pill">{{ row.marketplace.replace('amazon.', '').upper() }}</span></td>
           <td><span class="mono">{{ row.seller_id }}</span>{% if row.seller_name %}<small>{{ row.seller_name }}</small>{% endif %}</td>
           <td><span class="company">{{ row.company_name or '—' }}</span>{% if row.company_source %}<span class="matrix-meta">{{ row.company_source }}</span>{% endif %}{% if store_view.similarity %}<span class="matrix-meta similarity-score">相似度 {{ row.similarity_score }}%</span>{% endif %}</td>
-          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono"{% if vat.country_inferred %} title="IT 前缀由号码格式推断"{% endif %}>{{ vat.number }}</span>{% if vat.vies_valid == 0 %}<small>VIES：当前无效</small>{% elif vat.vies_name %}<small>VIES：{{ vat.vies_name }}</small>{% elif vat.vies_valid == 1 %}<small>VIES：有效，未返回公司名</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
-          <td class="address">{{ row.business_address or '—' }}</td>
+          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono"{% if vat.country_inferred %} title="IT 前缀由号码格式推断"{% endif %}>{{ vat.number }}</span></div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat">{% if vat.vies_name %}{{ vat.vies_name }}{% elif vat.vies_valid == 0 %}<span class="muted">当前无效</span>{% elif vat.vies_valid == 1 %}<span class="muted">有效，未返回公司名称</span>{% else %}<span class="muted">—</span>{% endif %}{% if row.vats|length > 1 %}<small>对应 {{ vat.number }}</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td>{% if row.status %}<span class="badge {{ 'failed' if row.status == 'failed' else 'ok' if row.status in ('local_vat','other_vat') else 'pending' if row.status == 'pending' else 'no_public_vat' }}">{{ '临时受限 · 待重试' if row.status == 'failed' and 'HTTP 202' in (row.check_error or '') else {'local_vat':'已找到税号','other_vat':'其他国税号','no_public_vat':'未见公开税号','failed':'核查未完成','pending':'待核查'}.get(row.status,row.status) }}</span>{% else %}<span class="muted">历史记录</span>{% endif %}{% if row.source_url %}<span class="matrix-meta"><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">店铺 ↗</a></span>{% endif %}{% if row.checked_at %}<span class="matrix-meta">{{ row.checked_at[:16].replace('T', ' ') }}</span>{% endif %}</td>
         </tr>{% endfor %}</tbody>
       </table></div>{% else %}<div class="empty"><strong>没有匹配的店铺站点</strong><p>可调整搜索词、站点或公司名称相似度。</p></div>{% endif %}
