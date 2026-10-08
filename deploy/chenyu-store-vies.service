@@ -1,0 +1,13 @@
+[Unit]
+Description=Enrich collected European store VAT numbers from VIES
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/chenyu/chenyu-crawler
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/chenyu/chenyu-crawler/.venv/bin/python /home/ubuntu/chenyu/chenyu-crawler/check_vies_vats.py --limit 30 --interval 0.8
+TimeoutStartSec=600

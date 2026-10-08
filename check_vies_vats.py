@@ -26,13 +26,15 @@ EMPTY_NAMES = {'', '---', '—', 'N/A', 'NA'}
 def candidates(db: sqlite3.Connection) -> list[str]:
     """Only public VAT evidence missing both a saved VIES result and a known VIES name."""
     return [number for (number,) in db.execute('''
-        SELECT DISTINCT e.vat_number FROM seller_vat_evidence e
+        SELECT e.vat_number FROM seller_vat_evidence e
         WHERE NOT EXISTS (SELECT 1 FROM vat_checks v WHERE v.vat_number=e.vat_number)
           AND NOT EXISTS (
             SELECT 1 FROM sellers s WHERE s.vat_number=e.vat_number
             AND TRIM(COALESCE(s.vies_company_name,'')) NOT IN ('','---','—','N/A','NA')
           )
-        ORDER BY CASE SUBSTR(e.vat_number,1,2)
+        GROUP BY e.vat_number
+        ORDER BY MAX(COALESCE(e.checked_at,'')) DESC,
+          CASE SUBSTR(e.vat_number,1,2)
           WHEN 'IT' THEN 0 WHEN 'FR' THEN 1 WHEN 'DE' THEN 2
           WHEN 'PL' THEN 3 WHEN 'ES' THEN 4 ELSE 5 END,
           e.vat_number
@@ -78,7 +80,7 @@ def run(path: Path, *, limit: int = 0, interval: float = 0.8,
         numbers: set[str] | None = None) -> dict:
     if not path.is_file():
         raise FileNotFoundError(path)
-    db = sqlite3.connect(path.resolve().as_uri() + '?mode=rw', uri=True)
+    db = sqlite3.connect(path.resolve().as_uri() + '?mode=rw', uri=True, timeout=30)
     counts = {'checked': 0, 'valid': 0, 'named': 0, 'invalid': 0, 'errors': 0}
     try:
         db.executescript(SCHEMA)

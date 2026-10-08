@@ -29,6 +29,20 @@ class ViesVatTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT vies_company_name FROM sellers WHERE seller_id='A1234567890'").fetchone()[0], 'OFFICIAL LTD')
             self.assertEqual(candidates(db), ['FR12345678901'])
 
+    def test_recent_public_vat_is_queried_first_and_saved(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE seller_vat_evidence SET checked_at='2026-10-08T19:00:00+08:00' WHERE vat_number='FR12345678901'")
+            self.assertEqual(candidates(db), ['FR12345678901', 'IT12345678901'])
+        with patch('check_vies_vats.fetch_vies', return_value={
+            'valid': True, 'name': 'FRENCH TRADING SARL', 'address': 'Paris',
+        }), patch('check_vies_vats.time.sleep'):
+            self.assertEqual(run(self.path, limit=1)['named'], 1)
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT vies_company_name FROM vat_checks WHERE vat_number=?',
+                                        ('FR12345678901',)).fetchone()[0], 'FRENCH TRADING SARL')
+            self.assertIsNone(db.execute('SELECT 1 FROM vat_checks WHERE vat_number=?',
+                                         ('IT12345678901',)).fetchone())
+
     def test_response_without_name_is_not_invented(self):
         class Response:
             def __enter__(self): return self

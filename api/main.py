@@ -419,11 +419,11 @@ def today(
 def seller_vat_page(
     request: Request, run_id: str = "", tab: str = "sellers",
     q: str = "", status: str = "", page: int = 1,
-    site: str = "", similarity: int = 0, recency: str = "",
+    seller: str = "", site: str = "", similarity: int = 0, recency: str = "",
 ):
-    selected_recency = recency if recency in ("all", "latest", "checked") else ("all" if q else "checked")
+    selected_recency = recency if recency in ("all", "latest", "checked") else ("all" if q or seller else "checked")
     store_view = load_store_matrix(
-        AMAZON_IT_DB_PATH, query=q, site=site, similarity=similarity,
+        AMAZON_IT_DB_PATH, query=q, seller=seller, site=site, similarity=similarity,
         recency=selected_recency, page=page,
     )
     if store_view is not None:

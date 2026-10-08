@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
 
+from check_vies_vats import EU_PREFIXES
+
 PAGE_SIZE = 50
 SIMILARITY_OPTIONS = (0, 70, 80, 90, 100)
 SITE_ORDER = ("amazon.it", "amazon.fr", "amazon.de", "amazon.pl", "amazon.es")
@@ -59,9 +61,10 @@ def company_similarity(query: str, *names: str, minimum: int = 0) -> int:
     return best
 
 
-def _page_url(query: str, site: str, similarity: int, recency: str, page: int) -> str:
+def _page_url(query: str, site: str, similarity: int, recency: str, page: int, seller: str = "") -> str:
     return "/seller-vat?" + urlencode({
-        "q": query, "site": site, "similarity": similarity, "recency": recency, "page": page,
+        "q": query, "seller": seller, "site": site, "similarity": similarity,
+        "recency": recency, "page": page,
     })
 
 
@@ -116,12 +119,15 @@ def _base_sql(tables: set[str]) -> str:
     """
 
 
-def _where(query: str, site: str, similarity: int, recency: str, tables: set[str]) -> tuple[str, list[str]]:
+def _where(query: str, site: str, similarity: int, recency: str, tables: set[str], seller: str = "") -> tuple[str, list[str]]:
     clauses: list[str] = []
     args: list[str] = []
     if site:
         clauses.append("base.marketplace=?")
         args.append(site)
+    if seller:
+        clauses.append("(base.seller_id LIKE ? ESCAPE '\\' OR COALESCE(base.seller_name,'') LIKE ? ESCAPE '\\')")
+        args.extend((_like(seller), _like(seller)))
     if recency == "latest":
         clauses.append("base.discovery_order IS NOT NULL")
     elif recency == "checked":
@@ -207,6 +213,7 @@ def _add_vats(db: sqlite3.Connection, rows: list[dict], tables: set[str]) -> Non
                 "country_inferred": inferred,
                 "vies_name": _text(row.get("vies_company_name")),
                 "vies_valid": row.get("vies_valid"),
+                "vies_checkable": display[:2] in EU_PREFIXES,
             })
     if "seller_vat_evidence" not in tables:
         return
@@ -243,20 +250,22 @@ def _add_vats(db: sqlite3.Connection, rows: list[dict], tables: set[str]) -> Non
                 "country_inferred": inferred,
                 "vies_name": _text(item["vies_company_name"]),
                 "vies_valid": item["vies_valid"],
+                "vies_checkable": display[:2] in EU_PREFIXES,
             })
 
 
 def load_store_matrix(
-    path: Path, *, query: str = "", site: str = "", similarity: int = 0,
+    path: Path, *, query: str = "", seller: str = "", site: str = "", similarity: int = 0,
     recency: str = "all", page: int = 1,
 ) -> dict | None:
     if not path.is_file():
         return None
     query = query.strip()[:100]
+    seller = seller.strip()[:100]
     similarity = similarity if similarity in SIMILARITY_OPTIONS and query else 0
     recency = recency if recency in ("all", "latest", "checked") else "all"
     result = {
-        "available": True, "error": "", "query": query, "site": site,
+        "available": True, "error": "", "query": query, "seller": seller, "site": site,
         "similarity": similarity, "similarity_options": SIMILARITY_OPTIONS,
         "recency": recency,
         "sites": [], "rows": [], "total": 0, "page": 1, "pages": 1,
@@ -284,7 +293,7 @@ def load_store_matrix(
             site = site if site in sites else ""
             result["site"] = site
             base_sql = _base_sql(tables)
-            where, args = _where(query, site, similarity, recency, tables)
+            where, args = _where(query, site, similarity, recency, tables, seller)
             if similarity:
                 candidates = [dict(row) for row in db.execute(base_sql + "SELECT * FROM base" + where, args)]
                 matched = []
@@ -329,6 +338,6 @@ def load_store_matrix(
     except (sqlite3.DatabaseError, OSError, ValueError) as error:
         result.update(available=False, error=f"数据库读取失败：{type(error).__name__}")
         return result
-    result["previous_url"] = _page_url(query, site, similarity, recency, result["page"] - 1) if result["page"] > 1 else ""
-    result["next_url"] = _page_url(query, site, similarity, recency, result["page"] + 1) if result["page"] < result["pages"] else ""
+    result["previous_url"] = _page_url(query, site, similarity, recency, result["page"] - 1, seller) if result["page"] > 1 else ""
+    result["next_url"] = _page_url(query, site, similarity, recency, result["page"] + 1, seller) if result["page"] < result["pages"] else ""
     return result

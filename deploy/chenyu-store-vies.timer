@@ -1,0 +1,10 @@
+[Unit]
+Description=Continuously enrich newly collected European store VAT numbers
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+Unit=chenyu-store-vies.service
+
+[Install]
+WantedBy=timers.target

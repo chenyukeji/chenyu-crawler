@@ -52,6 +52,21 @@ class StoreMatrixTests(unittest.TestCase):
         self.assertEqual(result['rows'][0]['vats'][1]['vies_name'], 'EXAMPLE TRADING SP Z OO')
         self.assertEqual(load_store_matrix(self.path, query='%')['total'], 0)
 
+    def test_store_and_site_filters_combine_and_survive_pagination(self):
+        selected = load_store_matrix(self.path, seller='Example Shop', site='amazon.fr')
+        self.assertEqual(selected['total'], 1)
+        self.assertEqual(selected['rows'][0]['seller_id'], 'A1111111111')
+        self.assertEqual(load_store_matrix(self.path, seller='Example Shop', site='amazon.de')['total'], 0)
+        self.assertEqual(load_store_matrix(self.path, seller='%', site='amazon.fr')['total'], 0)
+        with sqlite3.connect(self.path) as db:
+            db.executemany('INSERT INTO sellers(marketplace,seller_id) VALUES (?,?)', [
+                ('amazon.it', f'A8{index:09d}') for index in range(51)
+            ])
+        second = load_store_matrix(self.path, seller='A8', site='amazon.it', page=2)
+        self.assertEqual((second['total'], second['page'], len(second['rows'])), (51, 2, 1))
+        self.assertIn('seller=A8', second['previous_url'])
+        self.assertIn('site=amazon.it', second['previous_url'])
+
     def test_discovered_store_is_visible_before_public_site_check(self):
         with sqlite3.connect(self.path) as db:
             db.execute("INSERT INTO seller_discoveries(seller_id,seller_name,source) VALUES ('A7777777777','New Shop','SellerSprite')")
