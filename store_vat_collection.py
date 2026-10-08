@@ -23,6 +23,7 @@ LOCK = ROOT / "data" / "auto-collection.lock"
 _START_LOCK = threading.Lock()
 ACTIVE = {"queued", "discovering", "checking"}
 RUN_ID = re.compile(r"^eu-store-\d{8}-\d{6}-\d{6}$")
+SITES = ("it", "fr", "de", "pl", "es")
 
 
 def _now() -> str:
@@ -61,12 +62,19 @@ def status() -> dict:
             candidate = json.loads((folder / "店铺候选.json").read_text(encoding="utf-8"))
             item["pages_checked"] = candidate.get("pages_checked", 0)
             item["reported_result_total"] = candidate.get("reported_result_total", 0)
-            item["stores_found"] = len(candidate.get("stores", []))
-        except (OSError, ValueError, TypeError):
-            pass
-        try:
-            item["site_checks"] = sum(1 for _ in (folder / "店铺公开信息_逐站证据.jsonl").open(encoding="utf-8"))
-        except OSError:
+            seller_ids = {store["seller_id"] for store in candidate.get("stores", [])}
+            item["stores_found"] = len(seller_ids)
+            # JSONL includes failed attempts and retries, so count distinct successful
+            # store-site checks in the database instead of counting log lines.
+            if seller_ids and DB.is_file():
+                with closing(sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+                    completed = {(seller_id, marketplace.removeprefix("amazon."))
+                                 for seller_id, marketplace in db.execute(
+                                     "SELECT seller_id,marketplace FROM seller_site_checks WHERE status!='failed'")
+                                 if seller_id in seller_ids}
+                item["site_checks"] = len(completed)
+                item["site_checks_total"] = len(seller_ids) * len(SITES)
+        except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
             pass
     return item
 
@@ -122,7 +130,7 @@ def _stores_to_check(candidate_ids: set[str]) -> tuple[list[str], int]:
     pending_sites = 0
     for seller_id in sorted(candidate_ids):
         previous = checks.get(seller_id, {})
-        missing = sum(previous.get(site) in (None, "failed") for site in ("it", "fr", "de", "pl", "es"))
+        missing = sum(previous.get(site) in (None, "failed") for site in SITES)
         if missing:
             selected.append(seller_id)
             pending_sites += missing

@@ -39,6 +39,36 @@ class StoreVatCollectionTests(unittest.TestCase):
             self.assertIn('--seller-ids-file', commands[1])
 
 
+    def test_progress_counts_distinct_completed_sites_from_database(self):
+        import sqlite3
+        from merge_store_vat_database import SCHEMA
+        from tests.test_store_vat_database import SELLERS_SCHEMA
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = 'eu-store-20261008-101010-000003'
+            folder = root / run_id
+            folder.mkdir()
+            (folder / '店铺候选.json').write_text(json.dumps({'pages_checked': 7, 'stores': [
+                {'seller_id': 'A1111111111'}, {'seller_id': 'A2222222222'}]}))
+            (folder / '店铺公开信息_逐站证据.jsonl').write_text('failed attempt\n' * 30)
+            status_file = root / 'status.json'
+            status_file.write_text(json.dumps({'run_id': run_id, 'state': 'failed'}))
+            db_path = root / 'stores.sqlite3'
+            with sqlite3.connect(db_path) as db:
+                db.executescript(SELLERS_SCHEMA + SCHEMA)
+                db.executemany('INSERT INTO seller_site_checks(marketplace,seller_id,status) VALUES (?,?,?)', [
+                    ('amazon.it', 'A1111111111', 'local_vat'),
+                    ('amazon.fr', 'A1111111111', 'failed'),
+                    ('amazon.de', 'A2222222222', 'no_public_vat'),
+                    ('amazon.it', 'A3333333333', 'local_vat'),
+                ])
+            with patch.object(collection, 'REPORTS', root), patch.object(collection, 'STATUS', status_file), \
+                 patch.object(collection, 'DB', db_path):
+                result = collection.status()
+            self.assertEqual(result['pages_checked'], 7)
+            self.assertEqual(result['site_checks'], 2)
+            self.assertEqual(result['site_checks_total'], 10)
+
     def test_unfinished_store_from_previous_run_is_selected(self):
         import sqlite3
         from merge_store_vat_database import SCHEMA

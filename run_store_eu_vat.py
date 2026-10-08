@@ -16,6 +16,8 @@ from check_vies_vats import run as run_vies
 from merge_store_vat_database import merge, save_site_result
 
 SITES = ("it", "fr", "de", "pl", "es")
+# Restart the Playwright driver regularly: a full collection opens tens of thousands of pages.
+SITE_CHECK_BATCH = 500
 SITE_LABELS = {"it": "意大利", "fr": "法国", "de": "德国", "pl": "波兰", "es": "西班牙"}
 STATUS_LABELS = {"local_vat": "已公开本站税号", "other_vat": "仅其他国税号",
                  "no_public_vat": "未见公开税号", "failed": "核查未完成", "pending": "待核查"}
@@ -152,6 +154,10 @@ async def fetch_public_seller(browser, context, url: str) -> dict:
     raise RuntimeError("店铺资料未返回")
 
 
+def browser_driver_lost(error: Exception) -> bool:
+    return "connection closed while reading from the driver" in str(error).casefold()
+
+
 async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], check_vies: bool = True,
                      seller_ids: set[str] | None = None) -> None:
     from playwright.async_api import async_playwright
@@ -187,41 +193,50 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
     semaphore = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
     completed = 0
-    async with async_playwright() as runtime:
-        browser = await runtime.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={"width": 1280, "height": 1000})
-        try:
-            with evidence_path.open("a", encoding="utf-8") as evidence:
-                async def check(seller_id: str, site: str) -> None:
-                    nonlocal completed
-                    url = f"https://www.amazon.{site}/sp?seller={seller_id}"
-                    item = {"seller_id": seller_id, "site": site, "url": url}
-                    async with semaphore:
-                        try:
-                            profile = await fetch_public_seller(browser, context, url)
-                            details = profile["details"]
-                            status = ("local_vat" if any(v["country"] == site.upper() for v in details["vats"])
-                                      else "other_vat" if details["vats"] else "no_public_vat")
-                            item.update(status=status, company=details["company"], address=details["address"],
-                                        vats=details["vats"], title=profile["title"])
-                        except Exception as error:
-                            item.update(status="failed", error=f"{type(error).__name__}: {error}"[:180])
-                        await asyncio.sleep(0.7)
-                    async with write_lock:
-                        item["checked_at"] = datetime.now(TZ).isoformat(timespec="seconds")
-                        # Commit first: every completed check remains in the database
-                        # even when the browser or export stops before the next page.
-                        save_site_result(STORE_DB, item)
-                        records[(seller_id, site)] = item
-                        evidence.write(json.dumps(item, ensure_ascii=False) + "\n")
-                        evidence.flush()
-                        completed += 1
-                        if completed % 10 == 0 or completed == len(pending):
-                            print(f"site_checks={completed}/{len(pending)} stores_with_results={len({s for s, _ in records})}", flush=True)
-                await asyncio.gather(*(check(seller_id, site) for seller_id, site in pending))
-        finally:
-            await context.close()
-            await browser.close()
+    with evidence_path.open("a", encoding="utf-8") as evidence:
+        async def check(browser, context, seller_id: str, site: str) -> None:
+            nonlocal completed
+            url = f"https://www.amazon.{site}/sp?seller={seller_id}"
+            item = {"seller_id": seller_id, "site": site, "url": url}
+            async with semaphore:
+                try:
+                    profile = await fetch_public_seller(browser, context, url)
+                    details = profile["details"]
+                    status = ("local_vat" if any(v["country"] == site.upper() for v in details["vats"])
+                              else "other_vat" if details["vats"] else "no_public_vat")
+                    item.update(status=status, company=details["company"], address=details["address"],
+                                vats=details["vats"], title=profile["title"])
+                except Exception as error:
+                    # A dead driver cannot inspect any further stores. Leave the remaining
+                    # checks pending so the next run resumes them from the database.
+                    if browser_driver_lost(error):
+                        raise RuntimeError("Playwright 驱动意外退出，未完成的站点将断点续采") from error
+                    item.update(status="failed", error=f"{type(error).__name__}: {error}"[:180])
+                await asyncio.sleep(0.7)
+            async with write_lock:
+                item["checked_at"] = datetime.now(TZ).isoformat(timespec="seconds")
+                # Commit each result before writing the optional JSONL export.
+                save_site_result(STORE_DB, item)
+                records[(seller_id, site)] = item
+                evidence.write(json.dumps(item, ensure_ascii=False) + "\n")
+                evidence.flush()
+                completed += 1
+                if completed % 10 == 0 or completed == len(pending):
+                    print(f"site_checks={completed}/{len(pending)} stores_with_results={len({s for s, _ in records})}", flush=True)
+
+        for offset in range(0, len(pending), SITE_CHECK_BATCH):
+            batch = pending[offset:offset + SITE_CHECK_BATCH]
+            async with async_playwright() as runtime:
+                browser = await runtime.chromium.launch(headless=True)
+                context = await browser.new_context(viewport={"width": 1280, "height": 1000})
+                try:
+                    async with asyncio.TaskGroup() as tasks:
+                        for seller_id, site in batch:
+                            tasks.create_task(check(browser, context, seller_id, site))
+                finally:
+                    await context.close()
+                    await browser.close()
+            print(f"browser_recycled={completed}/{len(pending)}", flush=True)
     print(save_results(sellers, candidates, records), flush=True)
     if check_vies:
         print(f"VIES: {check_batch_vies()}", flush=True)

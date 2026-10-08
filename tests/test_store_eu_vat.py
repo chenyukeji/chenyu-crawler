@@ -94,3 +94,69 @@ class SellerProfileRetryTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "HTTP 202"):
                 await stores.fetch_public_seller(browser, context, "https://www.amazon.fr/sp?seller=A1234567890")
         fresh.close.assert_awaited_once()
+
+
+class _FakePlaywright:
+    def __init__(self):
+        self.context = Mock(close=AsyncMock())
+        self.browser = Mock(new_context=AsyncMock(return_value=self.context), close=AsyncMock())
+        self.chromium = Mock(launch=AsyncMock(return_value=self.browser))
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+
+class StoreBatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_restarts_driver_between_batches_and_saves_each_site(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            database = root / 'stores.sqlite3'
+            with sqlite3.connect(database) as db:
+                db.execute('CREATE TABLE seller_discoveries (seller_id TEXT)')
+                db.executemany('INSERT INTO seller_discoveries VALUES (?)',
+                               [(f'A{index:010d}',) for index in range(3)])
+            runtimes = []
+            saved = []
+            def new_runtime():
+                runtime = _FakePlaywright()
+                runtimes.append(runtime)
+                return runtime
+            details = {'company': 'Company', 'address': '', 'vats': []}
+            with patch.object(stores, 'OUTPUT', root), patch.object(stores, 'STORE_DB', database), \
+                 patch.object(stores, 'SITE_CHECK_BATCH', 2), \
+                 patch('playwright.async_api.async_playwright', side_effect=new_runtime), \
+                 patch.object(stores, 'fetch_public_seller', new=AsyncMock(return_value={'details': details, 'title': 'Shop'})), \
+                 patch.object(stores, 'save_site_result', side_effect=lambda _db, item: saved.append(item)), \
+                 patch.object(stores, 'save_results', return_value=root / 'result.csv'), \
+                 patch.object(stores.asyncio, 'sleep', new=AsyncMock()):
+                await stores.main_async(0, 2, {'fr', 'de', 'pl', 'es'}, check_vies=False)
+            self.assertEqual(len(runtimes), 2)
+            self.assertEqual(len(saved), 3)
+            self.assertTrue(all(item['status'] == 'no_public_vat' for item in saved))
+            self.assertEqual(len((root / '店铺公开信息_逐站证据.jsonl').read_text().splitlines()), 3)
+            for runtime in runtimes:
+                runtime.context.close.assert_awaited_once()
+                runtime.browser.close.assert_awaited_once()
+
+    async def test_dead_driver_stops_batch_without_recording_fake_failures(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            database = root / 'stores.sqlite3'
+            with sqlite3.connect(database) as db:
+                db.execute('CREATE TABLE seller_discoveries (seller_id TEXT)')
+                db.execute('INSERT INTO seller_discoveries VALUES (?)', ('A1234567890',))
+            with patch.object(stores, 'OUTPUT', root), patch.object(stores, 'STORE_DB', database), \
+                 patch('playwright.async_api.async_playwright', side_effect=_FakePlaywright), \
+                 patch.object(stores, 'fetch_public_seller',
+                              new=AsyncMock(side_effect=RuntimeError('Connection closed while reading from the driver'))), \
+                 patch.object(stores, 'save_site_result') as save, \
+                 patch.object(stores.asyncio, 'sleep', new=AsyncMock()):
+                with self.assertRaises(ExceptionGroup):
+                    await stores.main_async(0, 1, {'fr', 'de', 'pl', 'es'}, check_vies=False)
+            save.assert_not_called()
+            self.assertEqual((root / '店铺公开信息_逐站证据.jsonl').read_text(), '')
