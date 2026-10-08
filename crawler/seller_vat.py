@@ -291,24 +291,22 @@ def configure_research(page):
     site.click()
     month = page.get_by_role("button", name="最近30天", exact=True)
     month.click()
-    # Several controls say 不限; choose only the one whose menu offers 近30天.
-    controls = page.locator("input[readonly]:visible")
-    for i in range(controls.count()):
-        control = controls.nth(i)
-        if control.input_value().strip() not in ("", "不限"):
-            continue
-        if control.get_attribute("placeholder") not in ("不限", None):
-            continue
-        control.click()
-        option = page.locator(".el-select-dropdown__item:visible").filter(has_text=re.compile(r"^近30天$")).first
-        if option.count():
-            option.click()
-            if control.input_value().strip() != "近30天":
-                raise StopCollection("上架时间筛选未生效")
-            break
-        page.keyboard.press("Escape")
-    else:
-        raise StopCollection("找不到上架时间的近30天选项")
+    # Scope the selector to 上架时间: other readonly controls include a multi-select
+    # whose overlay intercepts clicks, and their order changes with the page layout.
+    listing_field = page.locator(".item").filter(
+        has=page.locator(".title", has_text="上架时间")
+    )
+    control = listing_field.locator("input[readonly]:visible").first
+    if not control.count():
+        raise StopCollection("找不到上架时间筛选框")
+    control.click()
+    option = page.locator(".el-select-dropdown__item:visible").filter(
+        has_text=re.compile(r"^近30天$")
+    ).first
+    option.wait_for(timeout=5000)
+    option.click()
+    if control.input_value().strip() != "近30天":
+        raise StopCollection("上架时间筛选未生效")
     page.get_by_text("开始筛选", exact=True).first.click()
     page.wait_for_timeout(2000)
     check_page(page)
