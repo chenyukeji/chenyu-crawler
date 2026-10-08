@@ -28,7 +28,7 @@ from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
 from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
-from api.store_vat_view import load_store_view
+from api.store_matrix_view import load_store_matrix
 import seller_vat_login
 from seller_vat_loop import TRIGGER, profile_ready
 from crawler.seller_vat import collection_lock_held, save_json
@@ -415,11 +415,10 @@ def today(
 def seller_vat_page(
     request: Request, run_id: str = "", tab: str = "sellers",
     q: str = "", status: str = "", page: int = 1,
-    table: str = "sellers", country: str = "",
+    site: str = "", similarity: int = 0,
 ):
-    store_view = load_store_view(
-        AMAZON_IT_DB_PATH, STORE_REPORT_ROOT,
-        query=q, country=country, page=page, table=table,
+    store_view = load_store_matrix(
+        AMAZON_IT_DB_PATH, query=q, site=site, similarity=similarity, page=page,
     )
     if store_view is not None:
         return templates.TemplateResponse(request, "seller_vat.html", {

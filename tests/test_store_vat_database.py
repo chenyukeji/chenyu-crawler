@@ -50,13 +50,20 @@ class StoreVatDatabaseTests(unittest.TestCase):
         self.assertTrue(second['previous_url'])
         self.assertFalse(second['next_url'])
         self.assertEqual(load_amazon_db(self.db_path, query='%')['total'], 0)
-        with patch('api.main.AMAZON_IT_DB_PATH', self.db_path), \
-             patch('api.main.verify_admin_session', return_value=True):
-            status, _, body = asyncio.run(request_app(
-                '/seller-vat',
-                headers={'cookie': 'chenyu_session=test'},
-            ))
-        self.assertEqual(status, 200)
+        from starlette.requests import Request
+        from api.main import seller_vat_page
+        request = Request({
+            'type': 'http', 'http_version': '1.1', 'method': 'GET',
+            'scheme': 'http', 'path': '/seller-vat', 'raw_path': b'/seller-vat',
+            'query_string': b'', 'headers': [], 'client': ('127.0.0.1', 1),
+            'server': ('127.0.0.1', 8100),
+        })
+        with patch('api.main.AMAZON_IT_DB_PATH', self.db_path):
+            response = seller_vat_page(request, q='A1234567890')
+        body = response.body
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(body.count(b'<table'), 1)
+        self.assertNotIn('数据库记录'.encode(), body)
         self.assertIn('Verified Company'.encode(), body)
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;'.encode(), body)
         self.assertNotIn('<script>alert(1)</script>'.encode(), body)
