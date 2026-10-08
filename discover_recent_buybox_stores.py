@@ -110,7 +110,7 @@ def consume_partition_page(checkpoint: dict, candidates: dict, data: dict,
     pages = checkpoint["pages_checked"]
     add_page_candidates(items, candidates, pages, db_path)
     save_candidates(candidates, pages, checkpoint["reported_result_total"], output)
-    if page * int(data.get("size") or len(items)) >= total or len(items) < int(data.get("size") or len(items)):
+    if page * int(data.get("size") or len(items)) >= total:
         checkpoint["pending"].pop(0)
     else:
         part["page"] += 1

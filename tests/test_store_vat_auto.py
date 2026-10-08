@@ -59,6 +59,17 @@ class StoreVatAutoTests(unittest.TestCase):
             self.assertEqual(len(context.request.calls), 3)
             self.assertTrue(json.loads((output / "发现进度.json").read_text())["complete"])
 
+    def test_short_page_cannot_silently_finish_a_partition(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            checkpoint = discovery.initial_checkpoint()
+            candidate = {}
+            data = {"total": 100, "size": 60,
+                    "items": [{"asin": "B000000001", "sellerId": "A1111111111"}]}
+            with patch.object(discovery, "save_discoveries"):
+                discovery.consume_partition_page(checkpoint, candidate, data, output, output / "db")
+            self.assertEqual(checkpoint["pending"][0]["page"], 2)
+
     def test_automatic_schedule_waits_for_active_or_recent_runs(self):
         now = datetime.now(TZ)
         self.assertFalse(scheduler.due({"state": "discovering"}, now))
