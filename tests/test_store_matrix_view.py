@@ -96,7 +96,24 @@ class StoreMatrixTests(unittest.TestCase):
         second = load_store_matrix(self.path, site='amazon.it', page=2)
         self.assertEqual((second['total'], second['pages'], len(second['rows'])), (52, 2, 2))
         self.assertIn('site=amazon.it', second['previous_url'])
+        self.assertIn('recency=all', second['previous_url'])
         self.assertFalse(second['next_url'])
+
+    def test_latest_discoveries_and_recent_site_checks_are_separate_views(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("INSERT INTO seller_discoveries(seller_id,seller_name,source) VALUES ('A9999999999','Newest','test')")
+            db.execute("UPDATE seller_site_checks SET checked_at='2026-10-08T11:00:00+08:00' WHERE seller_id='A4444444444'")
+            db.execute("INSERT INTO seller_site_checks(marketplace,seller_id,status,checked_at) VALUES ('amazon.de','A2222222222','local_vat','2026-10-08T12:00:00+08:00')")
+        latest = load_store_matrix(self.path, recency='latest')
+        self.assertEqual(latest['rows'][0]['seller_id'], 'A9999999999')
+        self.assertEqual(latest['total'], 3)
+        checked = load_store_matrix(self.path, recency='checked')
+        self.assertEqual(checked['total'], 2)
+        self.assertEqual(checked['rows'][0]['seller_id'], 'A2222222222')
+        self.assertEqual(checked['rows'][0]['site_checked_at'], '2026-10-08T12:00:00+08:00')
+        self.assertEqual(load_store_matrix(self.path, query='Example Trading Ltd',
+                                           similarity=80, recency='checked')['total'], 1)
+        self.assertEqual(load_store_matrix(self.path, recency='all')['total'], 6)
 
     def test_missing_database_is_read_only(self):
         missing = Path(self.temp.name) / 'missing.sqlite3'

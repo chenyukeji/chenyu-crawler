@@ -59,8 +59,10 @@ def company_similarity(query: str, *names: str, minimum: int = 0) -> int:
     return best
 
 
-def _page_url(query: str, site: str, similarity: int, page: int) -> str:
-    return "/seller-vat?" + urlencode({"q": query, "site": site, "similarity": similarity, "page": page})
+def _page_url(query: str, site: str, similarity: int, recency: str, page: int) -> str:
+    return "/seller-vat?" + urlencode({
+        "q": query, "site": site, "similarity": similarity, "recency": recency, "page": page,
+    })
 
 
 def _like(value: str) -> str:
@@ -101,7 +103,9 @@ def _base_sql(tables: set[str]) -> str:
             COALESCE(NULLIF(TRIM({_column('c','source_url',checks)}),''),
                      NULLIF(TRIM(s.source_url),''),'') AS source_url,
             {"COALESCE(c.status,CASE WHEN d.seller_id IS NOT NULL AND s.seller_id IS NULL THEN 'pending' END)" if checks and discoveries else _column('c','status',checks)} AS status,
-            COALESCE({_column('c','checked_at',checks)},s.last_seen_at,'') AS checked_at
+            COALESCE({_column('c','checked_at',checks)},s.last_seen_at,'') AS checked_at,
+            {_column('c','checked_at',checks)} AS site_checked_at,
+            {'d.rowid' if discoveries else 'NULL'} AS discovery_order
           FROM keys k
           LEFT JOIN sellers s ON s.marketplace=k.marketplace AND s.seller_id=k.seller_id
           {'LEFT JOIN seller_site_checks c ON c.marketplace=k.marketplace AND c.seller_id=k.seller_id' if checks else ''}
@@ -111,12 +115,16 @@ def _base_sql(tables: set[str]) -> str:
     """
 
 
-def _where(query: str, site: str, similarity: int, tables: set[str]) -> tuple[str, list[str]]:
+def _where(query: str, site: str, similarity: int, recency: str, tables: set[str]) -> tuple[str, list[str]]:
     clauses: list[str] = []
     args: list[str] = []
     if site:
         clauses.append("base.marketplace=?")
         args.append(site)
+    if recency == "latest":
+        clauses.append("base.discovery_order IS NOT NULL")
+    elif recency == "checked":
+        clauses.append("NULLIF(base.site_checked_at,'') IS NOT NULL")
     if query and not similarity:
         fields = ("seller_id", "seller_name", "company_name", "business_address",
                   "vat_number", "vies_company_name", "marketplace")
@@ -238,15 +246,18 @@ def _add_vats(db: sqlite3.Connection, rows: list[dict], tables: set[str]) -> Non
 
 
 def load_store_matrix(
-    path: Path, *, query: str = "", site: str = "", similarity: int = 0, page: int = 1,
+    path: Path, *, query: str = "", site: str = "", similarity: int = 0,
+    recency: str = "all", page: int = 1,
 ) -> dict | None:
     if not path.is_file():
         return None
     query = query.strip()[:100]
     similarity = similarity if similarity in SIMILARITY_OPTIONS and query else 0
+    recency = recency if recency in ("all", "latest", "checked") else "all"
     result = {
         "available": True, "error": "", "query": query, "site": site,
         "similarity": similarity, "similarity_options": SIMILARITY_OPTIONS,
+        "recency": recency,
         "sites": [], "rows": [], "total": 0, "page": 1, "pages": 1,
         "previous_url": "", "next_url": "", "source_label": path.name,
     }
@@ -257,6 +268,12 @@ def load_store_matrix(
             if "sellers" not in tables:
                 result.update(available=False, error="数据库缺少店铺记录。")
                 return result
+            if recency == "checked" and (
+                "seller_site_checks" not in tables
+                or not db.execute("SELECT 1 FROM seller_site_checks WHERE checked_at IS NOT NULL LIMIT 1").fetchone()
+            ):
+                recency = "all"
+                result["recency"] = recency
             site_query = "SELECT DISTINCT marketplace FROM sellers"
             if "seller_site_checks" in tables:
                 site_query += " UNION SELECT DISTINCT marketplace FROM seller_site_checks"
@@ -266,7 +283,7 @@ def load_store_matrix(
             site = site if site in sites else ""
             result["site"] = site
             base_sql = _base_sql(tables)
-            where, args = _where(query, site, similarity, tables)
+            where, args = _where(query, site, similarity, recency, tables)
             if similarity:
                 candidates = [dict(row) for row in db.execute(base_sql + "SELECT * FROM base" + where, args)]
                 matched = []
@@ -275,7 +292,12 @@ def load_store_matrix(
                     if score >= similarity:
                         row["similarity_score"] = score
                         matched.append(row)
-                matched.sort(key=lambda row: (-row["similarity_score"], row["seller_id"], row["marketplace"]))
+                matched.sort(key=lambda row: (row["seller_id"], row["marketplace"]))
+                if recency == "latest":
+                    matched.sort(key=lambda row: row["discovery_order"] or 0, reverse=True)
+                elif recency == "checked":
+                    matched.sort(key=lambda row: row["site_checked_at"] or "", reverse=True)
+                matched.sort(key=lambda row: row["similarity_score"], reverse=True)
                 result["total"] = len(matched)
                 result["pages"] = max(1, (len(matched) + PAGE_SIZE - 1) // PAGE_SIZE)
                 result["page"] = min(max(1, page), result["pages"])
@@ -284,20 +306,25 @@ def load_store_matrix(
                 result["total"] = db.execute(base_sql + "SELECT COUNT(*) FROM base" + where, args).fetchone()[0]
                 result["pages"] = max(1, (result["total"] + PAGE_SIZE - 1) // PAGE_SIZE)
                 result["page"] = min(max(1, page), result["pages"])
+                order = {
+                    "latest": "discovery_order DESC, seller_id, marketplace",
+                    "checked": "site_checked_at DESC, seller_id, marketplace",
+                    "all": "seller_id,marketplace",
+                }[recency]
                 result["rows"] = [dict(row) for row in db.execute(
                     base_sql + "SELECT * FROM base" + where +
-                    " ORDER BY seller_id,marketplace LIMIT ? OFFSET ?",
+                    f" ORDER BY {order} LIMIT ? OFFSET ?",
                     [*args, PAGE_SIZE, (result["page"] - 1) * PAGE_SIZE],
                 )]
             for row in result["rows"]:
                 row["company_name"] = _text(row["company_name"])
-                row["similarity_url"] = _page_url(row["company_name"], "", 80, 1) if row["company_name"] else ""
+                row["similarity_url"] = _page_url(row["company_name"], "", 80, "all", 1) if row["company_name"] else ""
                 row["business_address"] = _text(row["business_address"])
                 row["source_url"] = _valid_source(_text(row["source_url"]), row["marketplace"], row["seller_id"])
             _add_vats(db, result["rows"], tables)
     except (sqlite3.DatabaseError, OSError, ValueError) as error:
         result.update(available=False, error=f"数据库读取失败：{type(error).__name__}")
         return result
-    result["previous_url"] = _page_url(query, site, similarity, result["page"] - 1) if result["page"] > 1 else ""
-    result["next_url"] = _page_url(query, site, similarity, result["page"] + 1) if result["page"] < result["pages"] else ""
+    result["previous_url"] = _page_url(query, site, similarity, recency, result["page"] - 1) if result["page"] > 1 else ""
+    result["next_url"] = _page_url(query, site, similarity, recency, result["page"] + 1) if result["page"] < result["pages"] else ""
     return result

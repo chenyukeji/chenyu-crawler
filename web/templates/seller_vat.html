@@ -69,6 +69,19 @@
     .collection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
     .collection-bar .secondary { background: #fff; color: #2563eb; border: 1px solid #b9cff9; }
     .collection-bar .secondary:hover { background: #edf4ff; }
+    .collection-bar a.button { display: inline-flex; align-items: center; }
+    .matrix-panel { margin-top: 14px; }
+    .matrix-panel .filters { padding: 12px 14px 8px; }
+    .matrix-panel .filters input, .matrix-panel .filters select, .matrix-panel .filters .button { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+    .matrix-panel .table-head { padding: 8px 12px; }
+    .matrix-table th { padding: 8px 10px; }
+    .matrix-table td { padding: 8px 10px; font-size: 12px; line-height: 1.35; }
+    .matrix-table .matrix-vats { gap: 3px; }
+    .matrix-table .matrix-vat { padding-bottom: 3px; }
+    .matrix-table .badge { padding: 3px 6px; }
+    .matrix-panel .pagination { padding: 10px; }
+    .matrix-meta { display: inline-block; margin-left: 6px; color: #98a2b3; font-size: 11px; }
+    .matrix-meta.similarity-score { color: #087a55; }
     .collection-status { color: #667085; font-size: 13px; }
     .button:disabled { opacity: .6; cursor: wait; }
     .matrix-filters { padding-bottom: 8px; }
@@ -117,26 +130,27 @@
   </div></header>
   <main>
 {% if store_view %}
-    <div class="heading"><div><h1>欧洲店铺商业信息</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
+    <div class="heading"><div><h1>欧洲店铺商业信息</h1><p>每行对应一个店铺在一个 Amazon 站点的公开商业信息。</p><div class="collection-bar"><button class="button" id="collect-stores" type="button">采集新店铺</button><button class="button secondary" id="refresh-sellersprite" type="button">刷新卖家精灵登录</button><a class="button secondary" href="/seller-vat?recency=checked">查看最新结果</a><span class="collection-status" id="collect-status" role="status">扫描卖家精灵近 30 天全部结果，核查新店铺的欧洲站公开信息。</span></div></div></div>
     <section class="panel matrix-panel" aria-label="店铺站点税号">
       {% if store_view.available %}
       <form class="filters matrix-filters" action="/seller-vat" method="get">
         <div class="field search"><label for="query">店铺、公司或税号</label><input id="query" name="q" value="{{ store_view.query }}" maxlength="100" placeholder="输入卖家 ID、税号或公司名称"></div>
         <div class="field"><label for="site">站点</label><select id="site" name="site"><option value="">全部站点</option>{% for item in store_view.sites %}<option value="{{ item.value }}" {% if store_view.site == item.value %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="recency">数据范围</label><select id="recency" name="recency"><option value="checked" {% if store_view.recency == 'checked' %}selected{% endif %}>核查结果 · 最新在前</option><option value="latest" {% if store_view.recency == 'latest' %}selected{% endif %}>新发现店铺 · 最新在前</option><option value="all" {% if store_view.recency == 'all' %}selected{% endif %}>全部历史记录</option></select></div>
         <div class="field"><label for="similarity">公司名称相似度</label><select id="similarity" name="similarity"><option value="0">普通搜索</option>{% for threshold in store_view.similarity_options if threshold %}<option value="{{ threshold }}" {% if store_view.similarity == threshold %}selected{% endif %}>至少 {{ threshold }}%</option>{% endfor %}</select></div>
         <button class="button" type="submit">筛选</button>
       </form>
-      <p class="matrix-hint">查找相似公司时，输入较完整的公司名称并选择相似度；公开公司名和 VIES 名称均参与匹配，结果按匹配度排序。符合意大利税号格式的历史纯数字编号会标注 IT（国家根据格式推断，仍需核验）；无法判定国家的编号不展示为 VAT。</p>
+      <p class="matrix-hint">默认显示最新核查结果；新发现店铺可能仍在等待核查。历史数据可切换“全部历史记录”。</p>
       <div class="table-head"><span>匹配 {{ '{:,}'.format(store_view.total) }} 条店铺站点记录 · 第 {{ store_view.page }} / {{ store_view.pages }} 页</span><span>每页 50 条<span class="scroll-hint"> · 可左右滑动</span></span></div>
       {% if store_view.rows %}<div class="table-wrap"><table class="matrix-table">
         <thead><tr><th>站点</th><th>店铺</th><th>公司名称</th><th>税号与 VIES 公司</th><th>公司地址</th><th>核查与来源</th></tr></thead>
         <tbody>{% for row in store_view.rows %}<tr>
           <td><span class="site-pill">{{ row.marketplace.replace('amazon.', '').upper() }}</span></td>
           <td><span class="mono">{{ row.seller_id }}</span>{% if row.seller_name %}<small>{{ row.seller_name }}</small>{% endif %}</td>
-          <td><span class="company">{{ row.company_name or '—' }}</span>{% if row.company_source %}<small>{{ row.company_source }}</small>{% endif %}{% if store_view.similarity %}<small class="similarity-score">相似度 {{ row.similarity_score }}%</small>{% endif %}{% if row.similarity_url %}<small><a href="{{ row.similarity_url }}">查相似店铺</a></small>{% endif %}</td>
-          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono">{{ vat.number }}</span>{% if vat.country_inferred %}<small>IT 前缀由号码格式推断</small>{% endif %}{% if vat.vies_valid == 0 %}<small>VIES：当前无效</small>{% elif vat.vies_name %}<small>VIES：{{ vat.vies_name }}</small>{% elif vat.vies_valid == 1 %}<small>VIES：有效，未返回公司名</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td><span class="company">{{ row.company_name or '—' }}</span>{% if row.company_source %}<span class="matrix-meta">{{ row.company_source }}</span>{% endif %}{% if store_view.similarity %}<span class="matrix-meta similarity-score">相似度 {{ row.similarity_score }}%</span>{% endif %}</td>
+          <td>{% if row.vats %}<div class="matrix-vats">{% for vat in row.vats %}<div class="matrix-vat"><span class="mono"{% if vat.country_inferred %} title="IT 前缀由号码格式推断"{% endif %}>{{ vat.number }}</span>{% if vat.vies_valid == 0 %}<small>VIES：当前无效</small>{% elif vat.vies_name %}<small>VIES：{{ vat.vies_name }}</small>{% elif vat.vies_valid == 1 %}<small>VIES：有效，未返回公司名</small>{% endif %}</div>{% endfor %}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
           <td class="address">{{ row.business_address or '—' }}</td>
-          <td>{% if row.status %}<span class="badge {{ 'failed' if row.status == 'failed' else 'ok' if row.status in ('local_vat','other_vat') else 'pending' if row.status == 'pending' else 'no_public_vat' }}">{{ {'local_vat':'已找到税号','other_vat':'其他国税号','no_public_vat':'未见公开税号','failed':'访问失败','pending':'待核查'}.get(row.status,row.status) }}</span>{% else %}<span class="muted">历史记录</span>{% endif %}{% if row.source_url %}<small><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">查看 Amazon 店铺 ↗</a></small>{% endif %}{% if row.checked_at %}<small>{{ row.checked_at[:19] }}</small>{% endif %}</td>
+          <td>{% if row.status %}<span class="badge {{ 'failed' if row.status == 'failed' else 'ok' if row.status in ('local_vat','other_vat') else 'pending' if row.status == 'pending' else 'no_public_vat' }}">{{ {'local_vat':'已找到税号','other_vat':'其他国税号','no_public_vat':'未见公开税号','failed':'访问失败','pending':'待核查'}.get(row.status,row.status) }}</span>{% else %}<span class="muted">历史记录</span>{% endif %}{% if row.source_url %}<span class="matrix-meta"><a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">店铺 ↗</a></span>{% endif %}{% if row.checked_at %}<span class="matrix-meta">{{ row.checked_at[:16].replace('T', ' ') }}</span>{% endif %}</td>
         </tr>{% endfor %}</tbody>
       </table></div>{% else %}<div class="empty"><strong>没有匹配的店铺站点</strong><p>可调整搜索词、站点或公司名称相似度。</p></div>{% endif %}
       <div class="pagination">{% if store_view.previous_url %}<a href="{{ store_view.previous_url }}">← 上一页</a>{% else %}<span class="disabled">← 上一页</span>{% endif %}<span>{{ store_view.page }} / {{ store_view.pages }}</span>{% if store_view.next_url %}<a href="{{ store_view.next_url }}">下一页 →</a>{% else %}<span class="disabled">下一页 →</span>{% endif %}</div>
