@@ -195,8 +195,7 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
                 async def check(seller_id: str, site: str) -> None:
                     nonlocal completed
                     url = f"https://www.amazon.{site}/sp?seller={seller_id}"
-                    item = {"seller_id": seller_id, "site": site, "url": url,
-                            "checked_at": datetime.now(TZ).isoformat(timespec="seconds")}
+                    item = {"seller_id": seller_id, "site": site, "url": url}
                     async with semaphore:
                         try:
                             profile = await fetch_public_seller(browser, context, url)
@@ -209,6 +208,7 @@ async def main_async(limit_new: int, concurrency: int, skip_sites: set[str], che
                             item.update(status="failed", error=f"{type(error).__name__}: {error}"[:180])
                         await asyncio.sleep(0.7)
                     async with write_lock:
+                        item["checked_at"] = datetime.now(TZ).isoformat(timespec="seconds")
                         # Commit first: every completed check remains in the database
                         # even when the browser or export stops before the next page.
                         save_site_result(STORE_DB, item)

@@ -309,7 +309,10 @@ def load_store_matrix(
                 result["page"] = min(max(1, page), result["pages"])
                 order = {
                     "latest": "discovery_order DESC, seller_id, marketplace",
-                    "checked": "site_checked_at DESC, seller_id, marketplace",
+                    "checked": ("MAX(site_checked_at) OVER (PARTITION BY seller_id) DESC, seller_id, "
+                                "CASE marketplace WHEN 'amazon.it' THEN 0 WHEN 'amazon.fr' THEN 1 "
+                                "WHEN 'amazon.de' THEN 2 WHEN 'amazon.pl' THEN 3 "
+                                "WHEN 'amazon.es' THEN 4 ELSE 5 END"),
                     "all": "seller_id,marketplace",
                 }[recency]
                 result["rows"] = [dict(row) for row in db.execute(

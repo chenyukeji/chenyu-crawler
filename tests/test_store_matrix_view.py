@@ -122,6 +122,29 @@ class StoreMatrixTests(unittest.TestCase):
                                            similarity=80, recency='checked')['total'], 1)
         self.assertEqual(load_store_matrix(self.path, recency='all')['total'], 6)
 
+    def test_recent_checks_keep_each_store_sites_together(self):
+        with sqlite3.connect(self.path) as db:
+            db.executemany(
+                "INSERT INTO seller_site_checks(marketplace,seller_id,status,checked_at) VALUES (?,?,?,?)",
+                [
+                    (f"amazon.{site}", f"A9{index:09d}", "local_vat",
+                     "2026-10-09T13:00:00+08:00" if site == "fr" else "2026-10-08T13:00:00+08:00")
+                    for index in range(11) for site in ("it", "fr", "de", "pl", "es")
+                ],
+            )
+        rows = load_store_matrix(self.path, recency="checked")["rows"]
+        self.assertEqual(len(rows), 50)
+        self.assertEqual(len({row["seller_id"] for row in rows}), 10)
+        self.assertEqual(
+            [row["marketplace"] for row in rows[:5]],
+            ["amazon.it", "amazon.fr", "amazon.de", "amazon.pl", "amazon.es"],
+        )
+        self.assertEqual(
+            {site: sum(row["marketplace"] == site for row in rows)
+             for site in ("amazon.it", "amazon.fr", "amazon.de", "amazon.pl", "amazon.es")},
+            {site: 10 for site in ("amazon.it", "amazon.fr", "amazon.de", "amazon.pl", "amazon.es")},
+        )
+
     def test_missing_database_is_read_only(self):
         missing = Path(self.temp.name) / 'missing.sqlite3'
         self.assertIsNone(load_store_matrix(missing))
