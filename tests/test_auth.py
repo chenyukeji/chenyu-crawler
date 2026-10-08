@@ -92,7 +92,7 @@ class CrawlerAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
         status, _, login_page = await request_app("/login")
         self.assertEqual(status, 200)
-        self.assertIn(b'href="/favicon.png"', login_page)
+        self.assertIn(b'href="/favicon.png?v=2"', login_page)
 
     async def test_unauthenticated_pages_and_apis_are_blocked(self):
         for path in ("/", "/today", "/seller-vat"):
