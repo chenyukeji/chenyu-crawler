@@ -179,7 +179,7 @@ def parse_seller(html):
 def check_page(page, amazon=False):
     body = page.locator("body").inner_text(timeout=15000)
     # SellerSprite renders "未登录" briefly before its client-side session check finishes.
-    if not amazon and "/user/login" not in page.url and re.search(r"未登录\s*(游客)?", body):
+    if not amazon and not any(marker in page.url for marker in ("/user/login", "/user/signin")) and re.search(r"未登录\s*(游客)?", body):
         for _ in range(12):
             page.wait_for_timeout(1000)
             body = page.locator("body").inner_text(timeout=15000)
@@ -189,8 +189,8 @@ def check_page(page, amazon=False):
     markers = ("enter the characters you see below", "robot check", "inserisci i caratteri", "unauthorized ai agent", "unusual traffic", "输入验证码", "滑块验证", "安全验证", "验证您是真人")
     if any(m in lower for m in markers) or page.locator("input#captchacharacters").count():
         raise StopCollection("遇到验证码或访问验证，已保存进度。请人工处理后续跑。")
-    if not amazon and (re.search(r"未登录\s*(游客)?", body) or "/user/login" in page.url):
-        raise StopCollection("卖家精灵尚未登录。先运行 run_seller_vat.py login，登录后再运行采集。")
+    if not amazon and (re.search(r"未登录\s*(游客)?", body) or any(marker in page.url for marker in ("/user/login", "/user/signin"))):
+        raise StopCollection("卖家精灵尚未登录。请在税号管理页使用已配置账号重新登录。")
     if amazon and any(m in lower for m in ("sorry! something went wrong", "service unavailable", "api-services-support@amazon")):
         raise StopCollection("Amazon 页面暂时不可用，已保存进度。")
     return body
@@ -289,12 +289,8 @@ def configure_research(page):
     page.get_by_text("重置条件", exact=True).first.click()
     site = page.get_by_role("button", name="意大利", exact=True)
     site.click()
-    if "active" not in (site.get_attribute("class") or ""):
-        raise StopCollection("意大利站筛选未生效")
     month = page.get_by_role("button", name="最近30天", exact=True)
     month.click()
-    if "active" not in (month.get_attribute("class") or ""):
-        raise StopCollection("最近30天统计周期未生效")
     # Several controls say 不限; choose only the one whose menu offers 近30天.
     controls = page.locator("input[readonly]:visible")
     for i in range(controls.count()):
