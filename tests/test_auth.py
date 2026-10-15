@@ -95,7 +95,7 @@ class CrawlerAccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'href="/favicon.png?v=2"', login_page)
 
     async def test_unauthenticated_pages_and_apis_are_blocked(self):
-        for path in ("/", "/today", "/seller-vat"):
+        for path in ("/", "/today", ):
             status, headers, _ = await request_app(path)
             self.assertEqual(status, 303)
             self.assertTrue(headers["location"].startswith("/login?next="))

@@ -27,21 +27,10 @@ from crawler.amazon import validate_source
 from crawler.lifecycle import latest_runs, now_shanghai
 from database.connection import connect_database
 from scheduler_loop import SCHEDULE_TIMEZONE, loop, start_manual_run
-from api.seller_vat_view import load_scheduler_status, load_seller_vat_page
-from api.store_matrix_view import load_store_matrix
-from api.store_vat_view import load_store_overview
-import seller_vat_login
-import store_vat_collection
-from seller_vat_loop import TRIGGER, profile_ready
-from crawler.seller_vat import collection_lock_held, save_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "sources.json"
-SELLER_VAT_DB_PATH = ROOT / "data" / "seller_vat.sqlite3"
-AMAZON_IT_DB_PATH = ROOT / "data" / "amazon_it.sqlite3"
-STORE_REPORT_ROOT = ROOT / "outputs" / "seller-vat"
-SELLER_VAT_STATUS_PATH = ROOT / "data" / "seller-vat-scheduler.json"
 
 
 @asynccontextmanager
@@ -67,7 +56,7 @@ def favicon():
 
 
 def safe_next_path(value: str) -> str:
-    return value if value in {"/today", "/seller-vat"} else "/"
+    return value if value == "/today" else "/"
 
 
 @app.middleware("http")
@@ -320,7 +309,7 @@ def live_status():
     config = load_config(CONFIG_PATH)
     cards = today_source_cards(config)
     return {"sources": cards, "summary": card_summary(cards), "state": scheduler_state(),
-            "stats": database_stats(), "store_vat": load_store_overview(AMAZON_IT_DB_PATH)}
+            "stats": database_stats()}
 
 
 @app.post("/source/run")
@@ -364,7 +353,6 @@ def page_context(
         "marketplace_count": len({source["marketplace"] for source in sources}),
         "state": scheduler_state(),
         "stats": database_stats(),
-        "store_vat": load_store_overview(AMAZON_IT_DB_PATH),
         "saved": saved,
         "deleted": deleted,
         "run_started": run_started,
@@ -413,75 +401,6 @@ def today(
             run_busy=run_busy,
         ),
     )
-
-
-@app.get("/seller-vat", response_class=HTMLResponse)
-def seller_vat_page(
-    request: Request, run_id: str = "", tab: str = "sellers",
-    q: str = "", status: str = "", page: int = 1,
-    seller: str = "", site: str = "", similarity: int = 0, recency: str = "",
-):
-    selected_recency = recency if recency in ("all", "latest", "checked") else ("all" if q or seller else "checked")
-    store_view = load_store_matrix(
-        AMAZON_IT_DB_PATH, query=q, seller=seller, site=site, similarity=similarity,
-        recency=selected_recency, page=page,
-    )
-    if store_view is not None:
-        return templates.TemplateResponse(request, "seller_vat.html", {
-            "request": request, "store_view": store_view,
-        })
-    data = load_seller_vat_page(
-        SELLER_VAT_DB_PATH, run_id=run_id, tab=tab,
-        query=q, status=status, page=page,
-    )
-    return templates.TemplateResponse(request, "seller_vat.html", {"request": request, "store_view": None, "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH), "default_account": seller_vat_login.default_account(), **data})
-
-
-def _secure_vat_action(request: Request):
-    if request.url.scheme != "https" and request.headers.get("host", "").split(":")[0] not in {"127.0.0.1", "localhost"}:
-        return JSONResponse({"error": "请通过 HTTPS 访问登录和采集操作"}, status_code=403)
-    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
-        return JSONResponse({"error": "无效的操作请求"}, status_code=403)
-    return None
-
-
-@app.post("/seller-vat/login/start")
-def seller_vat_login_start(request: Request):
-    if rejection := _secure_vat_action(request):
-        return rejection
-    started, message = seller_vat_login.start_from_config()
-    return JSONResponse({"started": started, "message": message}, status_code=202 if started else 409)
-
-
-@app.get("/seller-vat/login/status")
-def seller_vat_login_status():
-    return {"login": seller_vat_login.status(), "scheduler": load_scheduler_status(SELLER_VAT_STATUS_PATH)}
-
-
-@app.post("/seller-vat/collect/start")
-def store_vat_collect_start(request: Request):
-    if rejection := _secure_vat_action(request):
-        return rejection
-    started, message, state = store_vat_collection.start()
-    return JSONResponse({"started": started, "message": message, "collection": state},
-                        status_code=202 if started else 409)
-
-
-@app.get("/seller-vat/collect/status")
-def store_vat_collect_status():
-    return {"collection": store_vat_collection.status()}
-
-
-@app.post("/seller-vat/run")
-def seller_vat_run(request: Request):
-    if rejection := _secure_vat_action(request):
-        return rejection
-    if not profile_ready():
-        return JSONResponse({"error": "请先登录卖家精灵"}, status_code=409)
-    if collection_lock_held(seller_vat_login.LOCK):
-        return JSONResponse({"error": "浏览器正在登录或采集，请稍后重试"}, status_code=409)
-    save_json(TRIGGER, {"requested_at": datetime.now(SCHEDULE_TIMEZONE).isoformat(timespec="seconds")})
-    return JSONResponse({"message": "已提交采集请求，后台即将启动"}, status_code=202)
 
 
 @app.post("/run")
