@@ -51,8 +51,9 @@ def actual_rank(value: Any) -> int | None:
 
 @dataclass(slots=True)
 class BrowserSettings:
-    channel: str = "msedge"
-    headless: bool = False
+    # Match the documented server installation, even if its config is missing.
+    channel: str = "chromium"
+    headless: bool = True
     slow_mo_ms: int = 75
     timeout_ms: int = 60_000
     between_sources_seconds: float = 3.0

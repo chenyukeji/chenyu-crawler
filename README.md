@@ -4,7 +4,8 @@
 
 - 入口：`run_daily.py`；每日调度：`scheduler_loop.py`。
 - 管理网页：`api/main.py`，提供采集总览、今日采集、来源配置和管理员登录。
-- 数据库：`data/new_releases.db`；配置：`config/sources.json`。
+- 数据库：`data/new_releases.db`；来源配置：`config/sources.json`；采集浏览器配置：`env/browser.json`。
+- `env/browser.json` 属于新品榜采集的共享运行配置。默认使用无界面 Chromium，与安装命令一致；配置缺失时也采用相同默认值。
 - 详细配置、重试与恢复规则见 [新品榜使用说明](docs/NEW_RELEASES.md)。
 
 ## 安装和运行
